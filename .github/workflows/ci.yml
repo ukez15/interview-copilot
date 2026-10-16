@@ -40,7 +40,7 @@ jobs:
           LINE=$(grep -oP 'Line coverage:\s*\K[\d.]+' TestResults/report/Summary.txt)
           echo "Line coverage: $LINE%"
           awk -v c="$LINE" 'BEGIN { if (c + 0 < 75) { print "FAIL: coverage below 75%"; exit 1 } }'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: backend-coverage
