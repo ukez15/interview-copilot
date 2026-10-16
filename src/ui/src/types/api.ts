@@ -116,6 +116,19 @@ export interface WhisperModel {
   message: string | null;
 }
 
+export interface OllamaModel {
+  name: string;
+  sizeBytes: number;
+  modifiedAt: string;
+}
+
+export interface Preferences {
+  /** Chosen Ollama model; null means the backend's configured default. */
+  llmModel: string | null;
+  /** The backend's configured default (Llm:Model), shown as "Default (<name>)". */
+  defaultLlmModel: string;
+}
+
 export interface AnswerHeader {
   questionType: QuestionType;
   version: number;

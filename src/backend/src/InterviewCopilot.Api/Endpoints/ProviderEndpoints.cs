@@ -15,6 +15,11 @@ internal static class ProviderEndpoints
         .RequireAuthorization();
 
         MapWhisperModelEndpoints(app);
+
+        app.MapGet("/api/providers/ollama/models", async (IOllamaModelCatalog catalog, CancellationToken ct) =>
+            TypedResults.Ok(await catalog.ListInstalledAsync(ct)))
+        .WithTags("Providers")
+        .RequireAuthorization();
     }
 
     private static void MapWhisperModelEndpoints(IEndpointRouteBuilder app)

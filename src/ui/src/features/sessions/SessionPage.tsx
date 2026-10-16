@@ -113,7 +113,7 @@ export function SessionPage() {
         <SessionSettingsCard session={session} onSaved={setSession} />
         <Card>
           <CardTitle className="mb-4">Live assistant</CardTitle>
-          <LiveAssistant sessionId={session.id} />
+          <LiveAssistant sessionId={session.id} autoAnswer={session.autoAnswer} />
         </Card>
       </div>
     </main>

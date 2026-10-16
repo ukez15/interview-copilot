@@ -138,4 +138,16 @@ public sealed class AudioIngestService(SessionService sessions, IEnumerable<IAud
             await sink.OnFrameAsync(sessionId, frame, cancellationToken);
         }
     }
+
+    /// <summary>Tells every sink the session's audio socket closed, for any reason.</summary>
+    /// <param name="sessionId">The session whose stream ended.</param>
+    /// <param name="cancellationToken">Cancels the cleanup.</param>
+    /// <returns>A task that completes when every sink has handled the end.</returns>
+    public async ValueTask EndStreamAsync(Guid sessionId, CancellationToken cancellationToken)
+    {
+        foreach (var sink in sinks)
+        {
+            await sink.OnStreamEndedAsync(sessionId, cancellationToken);
+        }
+    }
 }

@@ -108,10 +108,20 @@ public sealed partial class TranscriptionWorker : BackgroundService
                     await TranscribeAsync(pipeline.SessionId, frame.Speaker, segment, cancellationToken);
                 }
             }
+
+            // The stream ended and the queue is empty: transcribe what each speaker was still saying.
+            foreach (var (speaker, segment) in pipeline.FlushAll())
+            {
+                await TranscribeAsync(pipeline.SessionId, speaker, segment, cancellationToken);
+            }
         }
         catch (OperationCanceledException)
         {
             // Host is stopping.
+        }
+        finally
+        {
+            _sink.Release(pipeline);
         }
     }
 
