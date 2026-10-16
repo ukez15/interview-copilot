@@ -2,7 +2,14 @@
   <!-- Central package management. Exact versions only; review each upgrade individually. -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Lets the Security pins below override vulnerable transitive versions. -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
+
+  <ItemGroup Label="Security pins (transitive)">
+    <!-- GHSA-qhrr-8q5h-9q3h: < 2.5.303 vulnerable. Pulled in by Aspire.Hosting (dev-only AppHost). -->
+    <PackageVersion Include="MessagePack" Version="2.5.307" />
+  </ItemGroup>
 
   <ItemGroup Label="Analyzers / build">
     <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.35.0.4138" />

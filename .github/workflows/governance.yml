@@ -31,6 +31,7 @@ jobs:
     name: Secure — SAST (CodeQL)
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false # one language failing must not hide the other's results
       matrix:
         language: [csharp, javascript-typescript]
     steps:
