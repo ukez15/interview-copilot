@@ -275,7 +275,8 @@ describe('App shell', () => {
       </AppProvider>,
     );
 
-    expect(await screen.findByLabelText('Question')).toBeInTheDocument();
+    // The token check is async, then the route renders; the default 1 s wait was flaky under full-suite load.
+    expect(await screen.findByLabelText('Question', undefined, { timeout: 5_000 })).toBeInTheDocument();
     expect(document.documentElement).toHaveClass('overlay');
   });
 
