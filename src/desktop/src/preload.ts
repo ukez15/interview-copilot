@@ -13,4 +13,7 @@ contextBridge.exposeInMainWorld('interviewCopilot', {
   hideOverlay: () => ipcRenderer.invoke('overlay:hide'),
   getSettings: () => ipcRenderer.invoke('settings:get'),
   setSettings: (patch: unknown) => ipcRenderer.invoke('settings:set', patch),
+  startCapture: (sessionId: string) => ipcRenderer.invoke('capture:start', sessionId),
+  stopCapture: () => ipcRenderer.invoke('capture:stop'),
+  getCaptureStatus: () => ipcRenderer.invoke('capture:status'),
 });

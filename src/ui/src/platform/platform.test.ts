@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createWebPlatform, DEFAULT_SETTINGS, detectPlatform, type DesktopBridge } from './index';
 
+const status = { state: 'live' as const, interviewer: true, mic: true, message: null };
+
 function fakeBridge(): DesktopBridge {
   return {
     getAuthToken: vi.fn().mockResolvedValue('t'),
@@ -13,6 +15,9 @@ function fakeBridge(): DesktopBridge {
     hideOverlay: vi.fn().mockResolvedValue(undefined),
     getSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
     setSettings: vi.fn().mockResolvedValue(DEFAULT_SETTINGS),
+    startCapture: vi.fn().mockResolvedValue(status),
+    stopCapture: vi.fn().mockResolvedValue(status),
+    getCaptureStatus: vi.fn().mockResolvedValue(status),
   };
 }
 
@@ -32,7 +37,12 @@ describe('platform', () => {
     await platform.hideOverlay();
     await platform.getSettings();
     await platform.setSettings({ autoStartOnMeeting: true });
+    await platform.startCapture('s1');
+    await platform.stopCapture();
+    expect(await platform.getCaptureStatus()).toEqual(status);
 
+    expect(bridge.startCapture).toHaveBeenCalledWith('s1');
+    expect(bridge.stopCapture).toHaveBeenCalled();
     expect(bridge.setApiKey).toHaveBeenCalledWith('deepgram', 'k');
     expect(bridge.showOverlay).toHaveBeenCalledWith('s1');
     expect(bridge.setSettings).toHaveBeenCalledWith({ autoStartOnMeeting: true });
@@ -57,7 +67,7 @@ describe('platform', () => {
     await platform.hideOverlay();
 
     expect(await platform.getAuthToken()).toBe('abc');
-    expect(updated).toEqual({ overlayOpacity: 0.5, autoStartOnMeeting: false });
+    expect(updated).toEqual({ overlayOpacity: 0.5, autoStartOnMeeting: false, micDeviceId: null });
     expect(await platform.getSettings()).toEqual(updated);
   });
 });

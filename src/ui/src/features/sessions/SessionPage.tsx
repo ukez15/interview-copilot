@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
+import { CaptureIndicator } from '@/features/audio/CaptureIndicator';
 import { DocumentsPanel } from '@/features/documents/DocumentsPanel';
 import { LiveAssistant } from '@/features/copilot/LiveAssistant';
 import { useApp } from '@/lib/app-context';
@@ -63,6 +64,7 @@ export function SessionPage() {
             {session.pinnedQuestionType ? `pinned: ${QUESTION_TYPE_LABELS[session.pinnedQuestionType]}` : 'auto-detect'}
           </CardDescription>
         </div>
+        <CaptureIndicator active={session.status === 'Live'} />
         <DocumentsPanel sessionId={session.id} documents={session.documents} onChange={(documents) => setSession({ ...session, documents })} />
         <div className="flex flex-wrap gap-2">
           {session.status === 'Draft' && (
@@ -71,6 +73,7 @@ export function SessionPage() {
                 void run(async () => {
                   const started = await api.startSession(session.id);
                   await platform.showOverlay(session.id);
+                  await platform.startCapture(session.id);
                   return started;
                 })
               }
@@ -83,6 +86,7 @@ export function SessionPage() {
               variant="destructive"
               onClick={() =>
                 void run(async () => {
+                  await platform.stopCapture();
                   await platform.hideOverlay();
                   return api.endSession(session.id);
                 })

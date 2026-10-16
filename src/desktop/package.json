@@ -8,13 +8,13 @@
   "license": "MIT",
   "main": "dist-electron/main.js",
   "scripts": {
-    "build:main": "tsc -p tsconfig.json",
+    "build:main": "tsc -p tsconfig.json && tsc -p tsconfig.capture.json && node scripts/copy-static.mjs",
     "build:ui": "pnpm --filter @interview-copilot/ui build",
     "build": "pnpm build:main",
     "dev": "pnpm build:main && cross-env INTERVIEW_COPILOT_DEV_URL=http://localhost:5173 electron .",
     "dist": "pnpm build:ui && pnpm build:main && electron-builder --config electron-builder.yml",
     "lint": "eslint .",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.capture.json --noEmit",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage"
   },

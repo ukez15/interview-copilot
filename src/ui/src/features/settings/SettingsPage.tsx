@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { Input, Label } from '@/components/ui/form';
 import { Slider } from '@/components/ui/slider';
+import { MicrophonePicker } from '@/features/audio/MicrophonePicker';
 import { useApp } from '@/lib/app-context';
 import { clampOpacity, OVERLAY_OPACITY } from '@/lib/utils';
 import { DEFAULT_SETTINGS, type DesktopSettings } from '@/platform';
@@ -53,6 +54,17 @@ export function SettingsPage() {
             Reset to 85%
           </Button>
         </div>
+      </Card>
+
+      <Card className="grid gap-3">
+        <CardTitle>Audio</CardTitle>
+        <MicrophonePicker
+          value={settings.micDeviceId}
+          onChange={(micDeviceId) => void platform.setSettings({ micDeviceId }).then(setSettings)}
+        />
+        <CardDescription>
+          The other side of the call is captured from your computer's sound output (Windows). Applies the next time a session starts.
+        </CardDescription>
       </Card>
 
       <Card className="grid gap-3">

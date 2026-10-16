@@ -27,17 +27,17 @@ describe('settings', () => {
     expect(clampOpacity(5)).toBe(1);
     expect(clampOpacity('x')).toBe(0.85);
     expect(sanitize(null)).toEqual(DEFAULT_SETTINGS);
-    expect(sanitize({ overlayOpacity: 0.5, autoStartOnMeeting: 'yes' })).toEqual({ overlayOpacity: 0.5, autoStartOnMeeting: false });
+    expect(sanitize({ overlayOpacity: 0.5, autoStartOnMeeting: 'yes' })).toEqual({ overlayOpacity: 0.5, autoStartOnMeeting: false, micDeviceId: null });
   });
 
   it('defaults to 85% opacity and ask-first, then persists updates', async () => {
     const dir = await tempDir();
     const store = SettingsStore.inDirectory(dir);
 
-    expect(await store.get()).toEqual({ overlayOpacity: 0.85, autoStartOnMeeting: false });
-    await store.update({ autoStartOnMeeting: true });
+    expect(await store.get()).toEqual({ overlayOpacity: 0.85, autoStartOnMeeting: false, micDeviceId: null });
+    await store.update({ autoStartOnMeeting: true, micDeviceId: 'usb-mic' });
 
-    expect(await SettingsStore.inDirectory(dir).get()).toEqual({ overlayOpacity: 0.85, autoStartOnMeeting: true });
+    expect(await SettingsStore.inDirectory(dir).get()).toEqual({ overlayOpacity: 0.85, autoStartOnMeeting: true, micDeviceId: 'usb-mic' });
   });
 
   it('recovers from a corrupt settings file', async () => {
