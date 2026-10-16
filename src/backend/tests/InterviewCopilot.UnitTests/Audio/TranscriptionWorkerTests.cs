@@ -263,6 +263,170 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
         _stt.Chunks.Single().Pcm16.Span.ToArray().Should().Contain(b => b != 0);
     }
 
+    private async Task WaitForNoPipelinesAsync()
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (_sink.PipelineCount > 0)
+        {
+            if (DateTime.UtcNow > deadline)
+            {
+                throw new TimeoutException($"{_sink.PipelineCount} pipelines were never released.");
+            }
+
+            await Task.Delay(1, Ct);
+        }
+    }
+
+    [Fact]
+    public async Task Should_FlushOneFinalSegment_When_StreamEndsMidSentence()
+    {
+        _stt.Reply = "I led a team of five";
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Interviewer, loudFrames: 5, silentFrames: 0);
+        await _sink.OnStreamEndedAsync(_sessionId, Ct);
+        var published = await _publisher.WaitForAsync(1);
+        var segment = await _listener.WaitAsync();
+        await WaitForNoPipelinesAsync();
+
+        var saved = _store.Segments.Should().ContainSingle().Subject;
+        saved.Text.Should().Be("I led a team of five");
+        saved.StartMs.Should().Be(0);
+        saved.EndMs.Should().Be(500);
+        saved.Speaker.Should().Be(Speaker.Interviewer);
+        published.Should().ContainSingle().Which.Type.Should().Be(SessionEventTypes.TranscriptSegment);
+        segment.Id.Should().Be(saved.Id);
+        _store.SaveCount.Should().Be(1);
+    }
+
+    [Fact]
+    public async Task Should_FlushEverySpeaker_When_StreamEndsWhileBothAreTalking()
+    {
+        _stt.ReplyFor = chunk => chunk.Speaker == Speaker.Interviewer ? "question" : "answer";
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Interviewer, loudFrames: 4, silentFrames: 0);
+        await SendAsync(Speaker.Candidate, loudFrames: 3, silentFrames: 0);
+        await _sink.OnStreamEndedAsync(_sessionId, Ct);
+        await WaitForNoPipelinesAsync();
+
+        _store.Segments.Select(s => (s.Speaker, s.Text)).Should().BeEquivalentTo(
+            [(Speaker.Interviewer, "question"), (Speaker.Candidate, "answer")]);
+    }
+
+    [Fact]
+    public async Task Should_EmitNothing_When_StreamEndsDuringSilence()
+    {
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Interviewer, loudFrames: 0, silentFrames: 10);
+        await _sink.OnStreamEndedAsync(_sessionId, Ct);
+        await WaitForNoPipelinesAsync();
+
+        _stt.Chunks.Should().BeEmpty();
+        _store.Segments.Should().BeEmpty();
+        _publisher.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Should_EmitNothing_When_StreamEndsAfterTooShortSpeech()
+    {
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Interviewer, loudFrames: 2, silentFrames: 0);
+        await _sink.OnStreamEndedAsync(_sessionId, Ct);
+        await WaitForNoPipelinesAsync();
+
+        _stt.Chunks.Should().BeEmpty();
+        _store.Segments.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Should_DrainQueuedFramesBeforeFlushing_When_StreamEnds()
+    {
+        await _worker.StartAsync(Ct);
+
+        // Queue everything before the worker can catch up; the end marker arrives right behind the frames.
+        await SendAsync(Speaker.Interviewer, loudFrames: 50, silentFrames: 0);
+        await _sink.OnStreamEndedAsync(_sessionId, Ct);
+        await WaitForNoPipelinesAsync();
+
+        var saved = _store.Segments.Should().ContainSingle().Subject;
+        saved.EndMs.Should().Be(5_000);
+    }
+
+    [Fact]
+    public async Task Should_StartFreshPipeline_When_StreamReconnectsAfterEnd()
+    {
+        await _worker.StartAsync(Ct);
+        await SendAsync(Speaker.Interviewer, loudFrames: 5, silentFrames: 0);
+        await _sink.OnStreamEndedAsync(_sessionId, Ct);
+        await WaitForNoPipelinesAsync();
+
+        await SendAsync(Speaker.Interviewer, loudFrames: 4, silentFrames: 6);
+        await _publisher.WaitForAsync(2);
+
+        _store.Segments.Should().HaveCount(2);
+        _store.Segments[^1].StartMs.Should().Be(0, "the new stream restarts its clock");
+        _store.Segments[^1].EndMs.Should().Be(400);
+    }
+
+    [Fact]
+    public async Task Should_CreateFreshPipeline_When_FrameArrivesBeforeEndedOneIsReleased()
+    {
+        await _sink.OnFrameAsync(_sessionId, new AudioFrame(Speaker.Interviewer, Tone(8_000)), Ct);
+        await _sink.OnStreamEndedAsync(_sessionId, Ct);
+        await _sink.OnFrameAsync(_sessionId, new AudioFrame(Speaker.Interviewer, Tone(8_000)), Ct);
+
+        _sink.NewPipelines.TryRead(out var first).Should().BeTrue();
+        _sink.NewPipelines.TryRead(out var second).Should().BeTrue();
+        second.Should().NotBeSameAs(first);
+        _sink.PipelineCount.Should().Be(1, "the ended pipeline is replaced, and the worker only releases its own");
+    }
+
+    [Fact]
+    public async Task Should_IgnoreEnd_When_SessionNeverStreamed()
+    {
+        var end = async () => await _sink.OnStreamEndedAsync(Guid.NewGuid(), Ct);
+
+        await end.Should().NotThrowAsync();
+        _sink.PipelineCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Should_ReleaseEveryPipeline_When_ManySessionsStartAndEnd()
+    {
+        await _worker.StartAsync(Ct);
+
+        for (var i = 0; i < 100; i++)
+        {
+            var id = Guid.NewGuid();
+            for (var f = 0; f < 4; f++)
+            {
+                await _sink.OnFrameAsync(id, new AudioFrame(Speaker.Interviewer, Tone(8_000)), Ct);
+            }
+
+            await _sink.OnStreamEndedAsync(id, Ct);
+            await WaitForNoPipelinesAsync();
+        }
+
+        _store.Segments.Should().HaveCount(100);
+        _sink.PipelineCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Should_ReleasePipeline_When_ProviderFailsDuringFlush()
+    {
+        _stt.FailNext = new InvalidOperationException("boom");
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Interviewer, loudFrames: 5, silentFrames: 0);
+        await _sink.OnStreamEndedAsync(_sessionId, Ct);
+        await WaitForNoPipelinesAsync();
+
+        _publisher.Events.Should().ContainSingle().Which.Type.Should().Be(SessionEventTypes.Error);
+    }
+
     [Fact]
     public async Task Should_StopCleanly_When_HostShutsDownWhileIdle()
     {
