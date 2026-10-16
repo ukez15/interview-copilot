@@ -2,6 +2,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, net, protocol, safeStorage, session, shell, webContents, type IpcMainInvokeEvent } from 'electron';
 import { BackendProcess, packagedBackendPath, waitForHealthy } from './backend-process';
+import { refreshAccessToken } from './auth-refresh';
+import { AuthStore } from './auth-store';
 import { CaptureController } from './capture-controller';
 import { openDataFolder } from './data-folder';
 import { APP_HOST, APP_PROTOCOL, BACKEND_URL, CaptureChannels, IpcChannels } from './ipc-channels';
@@ -21,6 +23,7 @@ let lastMeeting: string | null = null;
 let backend: BackendProcess | null = null;
 
 const settings = SettingsStore.inDirectory(app.getPath('userData'));
+const auth = AuthStore.inDirectory(safeStorage, app.getPath('userData'));
 const keys = KeyStore.inDirectory(safeStorage, app.getPath('userData'));
 const capture = new CaptureController({
   createWindow: () => {
@@ -51,11 +54,35 @@ function handle(channel: string, listener: (...args: unknown[]) => unknown): voi
   });
 }
 
-function registerIpc(): void {
-  handle(IpcChannels.getAuthToken, () => authToken);
-  handle(IpcChannels.setAuthToken, (token) => {
-    authToken = typeof token === 'string' ? token : null;
+// Sign-in persistence (#8): the access token lives in memory; only the refresh token is stored (encrypted).
+let refreshing: Promise<string | null> | null = null;
+
+function refreshAuthToken(): Promise<string | null> {
+  refreshing ??= refreshAccessToken(auth, BACKEND_URL)
+    .then((token) => (authToken = token))
+    .finally(() => (refreshing = null));
+  return refreshing;
+}
+
+function registerAuthIpc(): void {
+  // At startup there is no access token yet: restore the sign-in from the stored refresh token.
+  handle(IpcChannels.getAuthToken, () => authToken ?? refreshAuthToken());
+  handle(IpcChannels.refreshAuth, () => refreshAuthToken());
+  handle(IpcChannels.setAuthTokens, async (tokens) => {
+    const value = tokens as { accessToken?: unknown; refreshToken?: unknown } | null;
+    if (!value || typeof value.accessToken !== 'string' || typeof value.refreshToken !== 'string') {
+      authToken = null;
+      await auth.clear();
+      return;
+    }
+    authToken = value.accessToken;
+    // Without a usable OS keychain the sign-in simply lasts until the app closes.
+    await auth.set(value.refreshToken).catch(() => undefined);
   });
+}
+
+function registerIpc(): void {
+  registerAuthIpc();
   handle(IpcChannels.getApiKey, (provider) => keys.get(String(provider)));
   handle(IpcChannels.setApiKey, (provider, key) => keys.set(String(provider), String(key)));
   handle(IpcChannels.deleteApiKey, (provider) => keys.delete(String(provider)));

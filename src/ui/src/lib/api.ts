@@ -4,11 +4,14 @@ import type {
   AnswerModifier,
   CreateSessionInput,
   DocumentSummary,
+  OllamaModel,
+  Preferences,
   Providers,
   Session,
   StorageInfo,
   SessionSettingsInput,
   Transcript,
+  WhisperModel,
 } from '@/types/api';
 
 export const DEFAULT_API_BASE_URL = 'http://127.0.0.1:5480';
@@ -41,6 +44,19 @@ export interface AskInput {
 
 type FetchLike = typeof fetch;
 
+export interface SignInTokens {
+  accessToken: string;
+  refreshToken: string;
+}
+
+/** How the client recovers from an expired access token (#8). */
+export interface AuthHandlers {
+  /** Returns a fresh access token, or null when the sign-in can't be renewed. */
+  refresh: () => Promise<string | null>;
+  /** Called when a 401 couldn't be recovered, so the app can show the sign-in page. */
+  signedOut: () => void;
+}
+
 /** Typed client for the InterviewCopilot backend. Same client serves Mode C with a different base URL. */
 export class ApiClient {
   constructor(
@@ -49,21 +65,28 @@ export class ApiClient {
     private token: string | null = null,
   ) {}
 
+  private handlers: AuthHandlers | null = null;
+  private refreshing: Promise<string | null> | null = null;
+
   setToken(token: string | null): void {
     this.token = token;
+  }
+
+  setAuthHandlers(handlers: AuthHandlers | null): void {
+    this.handlers = handlers;
   }
 
   async register(username: string, password: string): Promise<void> {
     await this.send('/api/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) });
   }
 
-  async signIn(username: string, password: string): Promise<string> {
-    const result = await this.json<{ accessToken: string }>('/api/auth/sign-in', {
+  async signIn(username: string, password: string): Promise<SignInTokens> {
+    const result = await this.json<SignInTokens>('/api/auth/sign-in', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     });
     this.token = result.accessToken;
-    return result.accessToken;
+    return { accessToken: result.accessToken, refreshToken: result.refreshToken };
   }
 
   listSessions(): Promise<Session[]> {
@@ -80,6 +103,16 @@ export class ApiClient {
 
   updateSessionSettings(id: string, input: SessionSettingsInput): Promise<Session> {
     return this.json(`/api/sessions/${id}/settings`, { method: 'PUT', body: JSON.stringify(input) });
+  }
+
+  /** #22: pause or resume automatic answers; the backend also announces it as `autoanswer.state`. */
+  setAutoAnswer(id: string, enabled: boolean): Promise<Session> {
+    return this.json(`/api/sessions/${id}/auto-answer`, { method: 'PUT', body: JSON.stringify({ enabled }) });
+  }
+
+  /** WebSocket URL of a session's events channel (same host as the API). The access token is added by the caller. */
+  eventsUrl(sessionId: string): string {
+    return `${this.baseUrl.replace(/^http/, 'ws')}/ws/sessions/${sessionId}/events`;
   }
 
   getTranscript(id: string): Promise<Transcript> {
@@ -110,6 +143,27 @@ export class ApiClient {
 
   getStorage(): Promise<StorageInfo> {
     return this.json('/api/storage');
+  }
+
+  getWhisperModel(): Promise<WhisperModel> {
+    return this.json('/api/providers/whisper/model');
+  }
+
+  /** Starts the (user-initiated) speech model download; 409 means one is already running. */
+  downloadWhisperModel(): Promise<WhisperModel> {
+    return this.json('/api/providers/whisper/model/download', { method: 'POST' });
+  }
+
+  ollamaModels(): Promise<OllamaModel[]> {
+    return this.json('/api/providers/ollama/models');
+  }
+
+  getPreferences(): Promise<Preferences> {
+    return this.json('/api/preferences');
+  }
+
+  setLlmModel(llmModel: string | null): Promise<Preferences> {
+    return this.json('/api/preferences', { method: 'PUT', body: JSON.stringify({ llmModel }) });
   }
 
   transcriptPdfUrl(sessionId: string): string {
@@ -175,6 +229,41 @@ export class ApiClient {
   }
 
   private async send(path: string, init: RequestInit = {}): Promise<Response> {
+    const response = await this.attempt(path, init);
+    const recoverable = response.status === 401 && this.handlers !== null && !path.startsWith('/api/auth/');
+    if (!recoverable) {
+      return this.checked(response);
+    }
+
+    // One refresh, one retry; if either fails the user goes back to the sign-in page.
+    const token = await this.refreshOnce();
+    if (token) {
+      this.token = token;
+      const retry = await this.attempt(path, init);
+      if (retry.status !== 401) {
+        return this.checked(retry);
+      }
+    }
+    this.token = null;
+    this.handlers?.signedOut();
+    return this.checked(response);
+  }
+
+  private refreshOnce(): Promise<string | null> {
+    this.refreshing ??= (this.handlers?.refresh() ?? Promise.resolve(null))
+      .catch(() => null)
+      .finally(() => (this.refreshing = null));
+    return this.refreshing;
+  }
+
+  private async checked(response: Response): Promise<Response> {
+    if (!response.ok) {
+      throw new ApiError(response.status, await problemMessage(response));
+    }
+    return response;
+  }
+
+  private async attempt(path: string, init: RequestInit): Promise<Response> {
     const headers = new Headers(init.headers);
     if (init.body && !(init.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
@@ -183,17 +272,11 @@ export class ApiClient {
       headers.set('Authorization', `Bearer ${this.token}`);
     }
 
-    let response: Response;
     try {
-      response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers });
+      return await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers });
     } catch {
       throw new ApiError(0, "Can't reach the InterviewCopilot backend. Is the desktop app running?");
     }
-
-    if (!response.ok) {
-      throw new ApiError(response.status, await problemMessage(response));
-    }
-    return response;
   }
 }
 

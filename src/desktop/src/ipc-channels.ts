@@ -1,7 +1,8 @@
 /** IPC channel names shared by main and preload. Keep in sync with src/ui/src/platform. */
 export const IpcChannels = {
   getAuthToken: 'auth:get-token',
-  setAuthToken: 'auth:set-token',
+  setAuthTokens: 'auth:set-tokens',
+  refreshAuth: 'auth:refresh',
   getApiKey: 'keys:get',
   setApiKey: 'keys:set',
   deleteApiKey: 'keys:delete',

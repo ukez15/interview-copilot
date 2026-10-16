@@ -1,13 +1,15 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { ApiClient, DEFAULT_API_BASE_URL } from './api';
+import { ApiClient, DEFAULT_API_BASE_URL, type SignInTokens } from './api';
 import { detectPlatform, type Platform } from '@/platform';
 
 interface AppContextValue {
   api: ApiClient;
   platform: Platform;
   signedIn: boolean;
-  /** Stores the token with the platform (shared with the overlay window) and marks the user signed in. */
-  completeSignIn: (token: string) => Promise<void>;
+  /** Stores the tokens with the platform (shared with the overlay window) and marks the user signed in. */
+  completeSignIn: (tokens: SignInTokens) => Promise<void>;
+  /** Clears the stored sign-in and returns to the sign-in page. */
+  signOut: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -26,6 +28,18 @@ export function AppProvider({
   const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
+    // An expired access token is renewed once; if that fails the user is signed out (#8).
+    api.setAuthHandlers({
+      refresh: () => platform.refreshAuth(),
+      signedOut: () => {
+        void platform.setAuthTokens(null);
+        setSignedIn(false);
+      },
+    });
+    return () => api.setAuthHandlers(null);
+  }, [api, platform]);
+
+  useEffect(() => {
     void platform.getAuthToken().then((token) => {
       if (token) {
         api.setToken(token);
@@ -39,10 +53,15 @@ export function AppProvider({
       api,
       platform,
       signedIn,
-      completeSignIn: async (token) => {
-        api.setToken(token);
-        await platform.setAuthToken(token);
+      completeSignIn: async (tokens) => {
+        api.setToken(tokens.accessToken);
+        await platform.setAuthTokens(tokens);
         setSignedIn(true);
+      },
+      signOut: async () => {
+        api.setToken(null);
+        await platform.setAuthTokens(null);
+        setSignedIn(false);
       },
     }),
     [api, platform, signedIn],

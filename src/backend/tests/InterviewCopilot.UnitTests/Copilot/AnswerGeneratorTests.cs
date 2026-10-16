@@ -7,6 +7,7 @@ using InterviewCopilot.Application.Events;
 using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
+using InterviewCopilot.UnitTests.Services;
 using Microsoft.Extensions.Options;
 
 namespace InterviewCopilot.UnitTests.Copilot;
@@ -20,8 +21,43 @@ public class AnswerGeneratorTests
 
     private readonly RecordingPublisher _events = new();
 
+    private readonly InMemoryPreferences _preferences = new();
+
     private AnswerGenerator Generator(FakeLlm llm) =>
-        new(_store, _store, _store, llm, Options.Create(new LlmOptions { Model = "llama3.2:3b", Temperature = 0.2 }), new FixedClock(), _events);
+        new(_store, _store, _store, llm, Options.Create(new LlmOptions { Model = "llama3.2:3b", Temperature = 0.2 }), new FixedClock(), _events, _preferences);
+
+    [Theory]
+    [InlineData("qwen2.5:7b", "qwen2.5:7b")]
+    [InlineData(null, "llama3.2:3b")]
+    public async Task Should_UseOwnersPreferredModel_Else_ConfiguredDefault(string? preferred, string expected)
+    {
+        var preferences = UserPreferences.Create(_session.OwnerId, FixedClock.Default);
+        preferences.SetLlmModel(preferred, FixedClock.Default);
+        _preferences.Add(preferences);
+        var llm = new FakeLlm("x");
+
+        var (_, tokens) = await Generator(llm).GenerateAsync(new AnswerRequest(_session.Id, "Why this company?"), TestContext.Current.CancellationToken);
+        await foreach (var token in tokens)
+        {
+            _ = token;
+        }
+
+        llm.LastRequest!.Model.Should().Be(expected);
+    }
+
+    [Fact]
+    public async Task Should_UseConfiguredDefault_When_OwnerHasNoPreferences()
+    {
+        var llm = new FakeLlm("x");
+
+        var (_, tokens) = await Generator(llm).GenerateAsync(new AnswerRequest(_session.Id, "Why this company?"), TestContext.Current.CancellationToken);
+        await foreach (var token in tokens)
+        {
+            _ = token;
+        }
+
+        llm.LastRequest!.Model.Should().Be("llama3.2:3b");
+    }
 
     [Fact]
     public async Task Should_PublishDeltaPerToken_And_DoneAfterPersisting()

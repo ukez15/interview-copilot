@@ -6,7 +6,8 @@ const status = { state: 'live' as const, interviewer: true, mic: true, message: 
 function fakeBridge(): DesktopBridge {
   return {
     getAuthToken: vi.fn().mockResolvedValue('t'),
-    setAuthToken: vi.fn().mockResolvedValue(undefined),
+    setAuthTokens: vi.fn().mockResolvedValue(undefined),
+    refreshAuth: vi.fn().mockResolvedValue('new'),
     getApiKey: vi.fn().mockResolvedValue('k'),
     setApiKey: vi.fn().mockResolvedValue(undefined),
     deleteApiKey: vi.fn().mockResolvedValue(undefined),
@@ -29,7 +30,8 @@ describe('platform', () => {
 
     expect(platform.kind).toBe('desktop');
     await platform.getAuthToken();
-    await platform.setAuthToken('x');
+    await platform.setAuthTokens({ accessToken: 'x', refreshToken: 'y' });
+    expect(await platform.refreshAuth()).toBe('new');
     await platform.getApiKey('deepgram');
     await platform.setApiKey('deepgram', 'k');
     await platform.deleteApiKey('deepgram');
@@ -44,6 +46,7 @@ describe('platform', () => {
     await platform.openDataFolder();
     expect(bridge.openDataFolder).toHaveBeenCalled();
 
+    expect(bridge.setAuthTokens).toHaveBeenCalledWith({ accessToken: 'x', refreshToken: 'y' });
     expect(bridge.startCapture).toHaveBeenCalledWith('s1');
     expect(bridge.stopCapture).toHaveBeenCalled();
     expect(bridge.setApiKey).toHaveBeenCalledWith('deepgram', 'k');
@@ -63,7 +66,7 @@ describe('platform', () => {
   it('keeps web settings and token in memory', async () => {
     const platform = createWebPlatform();
 
-    await platform.setAuthToken('abc');
+    await platform.setAuthTokens({ accessToken: 'abc', refreshToken: 'ref' });
     const updated = await platform.setSettings({ overlayOpacity: 0.5 });
     await platform.deleteApiKey('x');
     await platform.setOverlayOpacity(0.5);
@@ -71,6 +74,9 @@ describe('platform', () => {
     await platform.hideOverlay();
 
     expect(await platform.getAuthToken()).toBe('abc');
+    expect(await platform.refreshAuth()).toBeNull();
+    await platform.setAuthTokens(null);
+    expect(await platform.getAuthToken()).toBeNull();
     expect(updated).toEqual({ overlayOpacity: 0.5, autoStartOnMeeting: false, micDeviceId: null });
     expect(await platform.getSettings()).toEqual(updated);
   });
