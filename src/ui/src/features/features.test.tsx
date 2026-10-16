@@ -97,6 +97,8 @@ describe('SessionPage', () => {
     renderWithApp(<SessionPage />, { api, platform, ...route });
 
     expect(await screen.findByText('Acme onsite')).toBeInTheDocument();
+    expect(screen.getByLabelText('Add documents')).toHaveAttribute('accept', '.txt,.md,.markdown,.pdf,.docx');
+    expect(screen.getByText(/PDF and Word \.docx/)).toBeInTheDocument();
     await userEvent.upload(screen.getByLabelText('Add documents'), new File(['JD'], 'jd.txt', { type: 'text/plain' }));
     expect(await screen.findByText('jd.txt')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Remove resume.txt' }));

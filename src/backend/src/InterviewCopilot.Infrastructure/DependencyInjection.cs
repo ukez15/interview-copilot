@@ -41,6 +41,8 @@ public static class DependencyInjection
 
         services.AddSingleton<IPasswordHasher, AspNetPasswordHasher>();
         services.AddSingleton<IDocumentTextExtractor, PlainTextExtractor>();
+        services.AddSingleton<IDocumentTextExtractor, PdfTextExtractor>();
+        services.AddSingleton<IDocumentTextExtractor, DocxTextExtractor>();
         services.AddSingleton<IPdfExporter, QuestPdfTranscriptExporter>();
 
         services.AddHttpClient<ILlmProvider, OllamaLlmProvider>((provider, http) =>

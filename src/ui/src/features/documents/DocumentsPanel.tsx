@@ -52,7 +52,7 @@ export function DocumentsPanel({
       <h3 className="font-medium">
         Documents ({documents.length}/{MAX_DOCUMENTS_PER_SESSION})
       </h3>
-      <CardDescription>Resume, job description, sales script, product docs. Plain text and Markdown for now.</CardDescription>
+      <CardDescription>Resume, job description, sales script, product docs. Plain text, Markdown, PDF and Word .docx files.</CardDescription>
       <ul className="grid gap-1">
         {documents.map((document) => (
           <li key={document.id} className="flex items-center justify-between rounded border border-border px-3 py-1.5 text-sm">
@@ -65,7 +65,7 @@ export function DocumentsPanel({
       </ul>
       <label className="text-sm">
         <span className="sr-only">Add documents</span>
-        <input type="file" multiple accept=".txt,.md,.markdown" disabled={remaining === 0} onChange={upload} aria-label="Add documents" />
+        <input type="file" multiple accept=".txt,.md,.markdown,.pdf,.docx" disabled={remaining === 0} onChange={upload} aria-label="Add documents" />
       </label>
       {error && (
         <p role="alert" className="text-sm text-destructive">

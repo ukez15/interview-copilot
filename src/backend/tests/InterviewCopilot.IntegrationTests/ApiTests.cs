@@ -7,6 +7,9 @@ using System.Text.Json.Serialization;
 using FluentAssertions;
 using InterviewCopilot.Application.Sessions;
 using InterviewCopilot.Application.Transcripts;
+using UglyToad.PdfPig.Core;
+using UglyToad.PdfPig.Fonts.Standard14Fonts;
+using UglyToad.PdfPig.Writer;
 
 namespace InterviewCopilot.IntegrationTests;
 
@@ -78,6 +81,32 @@ public sealed class ApiTests : IClassFixture<ApiFactory>
         ended.StatusCode.Should().Be(HttpStatusCode.OK);
         fetched!.Documents.Should().ContainSingle().Which.FileName.Should().Be("resume.txt");
         list.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Should_AttachPdfDocument_And_RejectCorruptPdf()
+    {
+        var client = await _factory.CreateSignedInClientAsync("pdfupload");
+        var created = await (await client.PostAsJsonAsync("/api/sessions", NewSession, Ct)).Content.ReadFromJsonAsync<SessionDto>(Json, Ct);
+        var builder = new PdfDocumentBuilder();
+        builder.AddPage(595, 842).AddText("Led a team of five at Acme.", 12, new PdfPoint(25, 700), builder.AddStandard14Font(Standard14Font.Helvetica));
+
+        var good = await client.PostAsync($"/api/sessions/{created!.Id}/documents", PdfForm(builder.Build(), "resume.pdf"), Ct);
+        var bad = await client.PostAsync($"/api/sessions/{created.Id}/documents", PdfForm([1, 2, 3], "broken.pdf"), Ct);
+        var fetched = await client.GetFromJsonAsync<SessionDto>($"/api/sessions/{created.Id}", Json, Ct);
+
+        good.StatusCode.Should().Be(HttpStatusCode.Created);
+        bad.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        fetched!.Documents.Should().ContainSingle().Which.FileName.Should().Be("resume.pdf");
+    }
+
+    private static MultipartFormDataContent PdfForm(byte[] bytes, string fileName)
+    {
+        var form = new MultipartFormDataContent();
+        var file = new ByteArrayContent(bytes);
+        file.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
+        form.Add(file, "file", fileName);
+        return form;
     }
 
     [Fact]
