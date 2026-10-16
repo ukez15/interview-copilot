@@ -1,5 +1,6 @@
 using InterviewCopilot.Application.Common.Exceptions;
 using InterviewCopilot.Application.Common.Interfaces;
+using InterviewCopilot.Application.Events;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
 
@@ -58,7 +59,11 @@ public sealed record SessionDto(
 }
 
 /// <summary>Session setup and lifecycle (FR-01..FR-06).</summary>
-public sealed class SessionService(ISessionRepository sessions, IUnitOfWork unitOfWork, TimeProvider clock)
+public sealed class SessionService(
+    ISessionRepository sessions,
+    IUnitOfWork unitOfWork,
+    TimeProvider clock,
+    ISessionEventPublisher? events = null)
 {
     public async Task<SessionDto> CreateAsync(CreateSessionCommand command, CancellationToken cancellationToken)
     {
@@ -105,6 +110,16 @@ public sealed class SessionService(ISessionRepository sessions, IUnitOfWork unit
         var session = await LoadOwnedAsync(ownerId, sessionId, cancellationToken);
         session.End(clock.GetUtcNow());
         await unitOfWork.SaveChangesAsync(cancellationToken);
+        return SessionDto.From(session);
+    }
+
+    /// <summary>Pauses or resumes automatic answers and tells everyone watching the session (#22).</summary>
+    public async Task<SessionDto> SetAutoAnswerAsync(Guid ownerId, Guid sessionId, bool enabled, CancellationToken cancellationToken)
+    {
+        var session = await LoadOwnedAsync(ownerId, sessionId, cancellationToken);
+        session.SetAutoAnswer(enabled);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        events?.Publish(session.Id, SessionEventTypes.AutoAnswerState, new { enabled });
         return SessionDto.From(session);
     }
 
