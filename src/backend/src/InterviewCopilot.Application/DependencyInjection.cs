@@ -17,6 +17,7 @@ public static class DependencyInjection
     public static IServiceCollection AddApplication(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<TranscriptionOptions>(configuration.GetSection(TranscriptionOptions.SectionName));
+        services.Configure<VadOptions>(configuration.GetSection(VadOptions.SectionName));
         services.Configure<LlmOptions>(configuration.GetSection(LlmOptions.SectionName));
 
         services.AddSingleton(TimeProvider.System);
@@ -29,6 +30,9 @@ public static class DependencyInjection
 
         services.AddSingleton<AudioStatsSink>();
         services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<AudioStatsSink>());
+        services.AddSingleton<TranscriptionSink>();
+        services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<TranscriptionSink>());
+        services.AddHostedService<TranscriptionWorker>();
         services.AddScoped<AudioIngestService>();
 
         // Replaced by the events hub (#23); TryAdd so a later registration wins.

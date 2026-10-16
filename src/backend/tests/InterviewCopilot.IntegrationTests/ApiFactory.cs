@@ -27,6 +27,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public ScriptedLlm Llm { get; } = new();
 
+    public ScriptedStt Stt { get; } = new();
+
     public object Credentials(string username, string? secret = null) =>
         new Dictionary<string, string> { ["username"] = username, ["password"] = secret ?? TestSecret };
 
@@ -49,6 +51,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<ILlmProvider>();
             services.AddSingleton<ILlmProvider>(Llm);
+            services.RemoveAll<ISpeechToTextProvider>();
+            services.AddSingleton<ISpeechToTextProvider>(Stt);
         });
     }
 
@@ -84,5 +88,25 @@ public sealed class ScriptedLlm : ILlmProvider
             await Task.Yield();
             yield return token;
         }
+    }
+}
+
+/// <summary>Stands in for Whisper: returns a scripted transcript (or fails) without loading a model.</summary>
+public sealed class ScriptedStt : ISpeechToTextProvider
+{
+    public string Text { get; set; } = "Tell me about a time you led a team.";
+
+    public bool Fail { get; set; }
+
+    public string Name => "scripted";
+
+    public Task<TranscriptionResult> TranscribeAsync(AudioChunk chunk, string? apiKey, CancellationToken cancellationToken)
+    {
+        if (Fail)
+        {
+            throw new InvalidOperationException("Speech model not available.");
+        }
+
+        return Task.FromResult(new TranscriptionResult(Text));
     }
 }

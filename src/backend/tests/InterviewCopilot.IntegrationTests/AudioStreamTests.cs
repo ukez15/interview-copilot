@@ -6,6 +6,7 @@ using System.Text.Json.Serialization;
 using FluentAssertions;
 using InterviewCopilot.Application.Audio;
 using InterviewCopilot.Application.Sessions;
+using InterviewCopilot.Application.Transcripts;
 
 namespace InterviewCopilot.IntegrationTests;
 
@@ -46,6 +47,60 @@ public sealed class AudioStreamTests : IClassFixture<ApiFactory>
             Ct);
 
     private static byte[] Frame(byte speaker) => [speaker, .. new byte[3_200]];
+
+    private static byte[] LoudFrame(byte speaker)
+    {
+        var frame = new byte[1 + 3_200];
+        frame[0] = speaker;
+        for (var i = 1; i < frame.Length; i += 2)
+        {
+            frame[i] = 0x40; // 8000 as little-endian PCM16, about -12 dBFS
+            frame[i + 1] = 0x1F;
+        }
+
+        return frame;
+    }
+
+    [Fact]
+    public async Task Should_PersistTranscriptSegment_When_SpeechThenPauseStreamed()
+    {
+        _factory.Stt.Text = "Walk me through your resume.";
+        var (client, token, session) = await LiveSessionAsync("audio-transcribe");
+        using var socket = await ConnectAsync(session.Id, token);
+
+        for (var i = 0; i < 5; i++)
+        {
+            await socket.SendAsync(LoudFrame(0), WebSocketMessageType.Binary, true, Ct);
+        }
+
+        for (var i = 0; i < 6; i++)
+        {
+            await socket.SendAsync(Frame(0), WebSocketMessageType.Binary, true, Ct);
+        }
+
+        var transcript = await WaitForEntriesAsync(client, session.Id, 1);
+        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", Ct);
+
+        var entry = transcript.Entries.Should().ContainSingle().Subject;
+        entry.Speaker.Should().Be(InterviewCopilot.Domain.Enums.Speaker.Interviewer);
+        entry.AtMs.Should().Be(0);
+        entry.Text.Should().Be("Walk me through your resume.");
+    }
+
+    private static async Task<TranscriptDto> WaitForEntriesAsync(HttpClient client, Guid sessionId, int count)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (true)
+        {
+            var transcript = await client.GetFromJsonAsync<TranscriptDto>($"/api/sessions/{sessionId}/transcript", Json, Ct);
+            if (transcript!.Entries.Count >= count || DateTime.UtcNow > deadline)
+            {
+                return transcript;
+            }
+
+            await Task.Delay(25, Ct);
+        }
+    }
 
     [Fact]
     public async Task Should_AcceptFramesForBothSpeakers_And_ReportStats()
