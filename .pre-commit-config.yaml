@@ -46,7 +46,8 @@ repos:
         files: ^src/backend/.*\.(cs|csproj|props|slnx)$
       - id: dotnet-test
         name: dotnet test
-        entry: dotnet test --solution src/backend/InterviewCopilot.slnx
+        # Release, like CI. Windows Smart App Control can block freshly built Debug test DLLs.
+        entry: dotnet test --solution src/backend/InterviewCopilot.slnx --configuration Release
         language: system
         pass_filenames: false
         files: ^src/backend/.*\.cs$
