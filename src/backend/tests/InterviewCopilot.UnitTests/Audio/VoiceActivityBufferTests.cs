@@ -222,6 +222,81 @@ public class VoiceActivityBufferTests
     }
 
     [Fact]
+    public void Should_FlushSpeechInProgress_When_StreamEndsMidSentence()
+    {
+        var buffer = NewBuffer();
+        Feed(buffer, (Silent(), 2), (Loud(), 4)).Should().BeEmpty();
+
+        var segment = buffer.Flush();
+
+        segment.Should().NotBeNull();
+        segment.StartMs.Should().Be(200);
+        segment.EndMs.Should().Be(600);
+        segment.Pcm16.Length.Should().Be(4 * FrameBytes);
+    }
+
+    [Fact]
+    public void Should_TrimTrailingSilence_When_FlushingAfterShortPause()
+    {
+        var buffer = NewBuffer();
+        Feed(buffer, (Loud(), 4), (Silent(), 3)).Should().BeEmpty();
+
+        var segment = buffer.Flush();
+
+        segment.Should().NotBeNull();
+        segment.EndMs.Should().Be(400);
+        segment.Pcm16.Length.Should().Be(4 * FrameBytes);
+    }
+
+    [Fact]
+    public void Should_FlushNothing_When_OnlySilenceBuffered()
+    {
+        var buffer = NewBuffer();
+        Feed(buffer, (Silent(), 20));
+
+        buffer.Flush().Should().BeNull();
+    }
+
+    [Fact]
+    public void Should_FlushNothing_When_NothingWasPushed()
+    {
+        NewBuffer().Flush().Should().BeNull();
+    }
+
+    [Fact]
+    public void Should_FlushNothing_When_SpeechShorterThanMinimum()
+    {
+        var buffer = NewBuffer();
+        Feed(buffer, (Loud(), 2));
+
+        buffer.Flush().Should().BeNull();
+    }
+
+    [Fact]
+    public void Should_FlushSpeech_When_ExactlyMinimumLength()
+    {
+        var buffer = NewBuffer();
+        Feed(buffer, (Loud(), 3));
+
+        buffer.Flush().Should().NotBeNull().And.Match<SpeechSegment>(s => s.EndMs == 300);
+    }
+
+    [Fact]
+    public void Should_ResetState_When_Flushed()
+    {
+        var buffer = NewBuffer();
+        Feed(buffer, (Loud(), 4));
+        buffer.Flush().Should().NotBeNull();
+
+        buffer.Flush().Should().BeNull("a second flush has nothing left");
+
+        var next = Feed(buffer, (Loud(), 3), (Silent(), 6));
+        var segment = next.Should().ContainSingle().Subject;
+        segment.StartMs.Should().Be(400, "timestamps keep moving after a flush");
+        segment.Pcm16.Length.Should().Be(3 * FrameBytes);
+    }
+
+    [Fact]
     public void Should_StayBounded_When_SpeechNeverPauses()
     {
         var buffer = NewBuffer();
