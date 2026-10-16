@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 using InterviewCopilot.Api.Endpoints;
 using InterviewCopilot.Api.Infrastructure;
 using InterviewCopilot.Application;
+using InterviewCopilot.Application.Events;
 using InterviewCopilot.Infrastructure;
 using InterviewCopilot.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Authentication.BearerToken;
@@ -12,6 +13,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.AddServiceDefaults();
 builder.Services.AddApplication(builder.Configuration);
 builder.Services.AddInfrastructure(builder.Configuration);
+// The in-memory hub replaces the no-op default publisher registered by AddApplication (#23).
+builder.Services.AddSingleton<SessionEventHub>();
+builder.Services.AddSingleton<ISessionEventPublisher>(provider => provider.GetRequiredService<SessionEventHub>());
 
 builder.Services.AddAuthentication(BearerTokenDefaults.AuthenticationScheme).AddBearerToken(options =>
     options.Events.OnMessageReceived = context =>
@@ -64,6 +68,7 @@ app.MapDocumentEndpoints();
 app.MapCopilotEndpoints();
 app.MapTranscriptEndpoints();
 app.MapAudioEndpoints();
+app.MapEventsEndpoints();
 
 await app.RunAsync();
 

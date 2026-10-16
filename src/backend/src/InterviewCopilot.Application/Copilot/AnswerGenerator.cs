@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using InterviewCopilot.Application.Common.Exceptions;
 using InterviewCopilot.Application.Common.Interfaces;
+using InterviewCopilot.Application.Events;
 using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
@@ -26,7 +27,8 @@ public sealed class AnswerGenerator(
     IUnitOfWork unitOfWork,
     ILlmProvider llm,
     IOptions<LlmOptions> llmOptions,
-    TimeProvider clock)
+    TimeProvider clock,
+    ISessionEventPublisher events)
 {
     public const int RecentSegmentCount = 12;
 
@@ -72,17 +74,20 @@ public sealed class AnswerGenerator(
         await foreach (var token in llm.StreamAsync(llmRequest, cancellationToken))
         {
             answer.Append(token);
+            events.Publish(sessionId, SessionEventTypes.AnswerDelta, new { token, version, questionType });
             yield return token;
         }
 
-        transcripts.AddAnswer(SuggestedAnswer.Create(
+        var suggested = SuggestedAnswer.Create(
             sessionId,
             request.Question,
             questionType,
             answer.ToString(),
             version,
             request.Modifier,
-            clock.GetUtcNow()));
+            clock.GetUtcNow());
+        transcripts.AddAnswer(suggested);
         await unitOfWork.SaveChangesAsync(cancellationToken);
+        events.Publish(sessionId, SessionEventTypes.AnswerDone, new { version, questionType, answerId = suggested.Id });
     }
 }

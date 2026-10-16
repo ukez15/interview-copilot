@@ -1,6 +1,9 @@
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using FluentAssertions;
 using InterviewCopilot.Application.Common.Exceptions;
 using InterviewCopilot.Application.Copilot;
+using InterviewCopilot.Application.Events;
 using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
@@ -15,8 +18,43 @@ public class AnswerGeneratorTests
 
     public AnswerGeneratorTests() => _store.Add(_session);
 
+    private readonly RecordingPublisher _events = new();
+
     private AnswerGenerator Generator(FakeLlm llm) =>
-        new(_store, _store, _store, llm, Options.Create(new LlmOptions { Model = "llama3.2:3b", Temperature = 0.2 }), new FixedClock());
+        new(_store, _store, _store, llm, Options.Create(new LlmOptions { Model = "llama3.2:3b", Temperature = 0.2 }), new FixedClock(), _events);
+
+    [Fact]
+    public async Task Should_PublishDeltaPerToken_And_DoneAfterPersisting()
+    {
+        var (_, tokens) = await Generator(new FakeLlm("I ", "led ", "it.")).GenerateAsync(
+            new AnswerRequest(_session.Id, "Tell me about a time you led a team"),
+            TestContext.Current.CancellationToken);
+
+        await foreach (var token in tokens)
+        {
+            _events.Published.Should().NotContain(e => e.Type == SessionEventTypes.AnswerDone);
+            _ = token;
+        }
+
+        _events.Published.Select(e => e.Type).Should().Equal(
+            SessionEventTypes.AnswerDelta,
+            SessionEventTypes.AnswerDelta,
+            SessionEventTypes.AnswerDelta,
+            SessionEventTypes.AnswerDone);
+        _events.Published.Should().OnlyContain(e => e.SessionId == _session.Id);
+        var json = _events.Published.Select(e => JsonSerializer.Serialize(e.Data, Web)).ToList();
+        json[0].Should().Be("{\"token\":\"I \",\"version\":1,\"questionType\":\"Behavioral\"}");
+        json[3].Should().Be($"{{\"version\":1,\"questionType\":\"Behavioral\",\"answerId\":\"{_store.Answers.Single().Id}\"}}");
+    }
+
+    private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
+
+    private sealed class RecordingPublisher : ISessionEventPublisher
+    {
+        public List<(Guid SessionId, string Type, object Data)> Published { get; } = [];
+
+        public void Publish(Guid sessionId, string type, object data) => Published.Add((sessionId, type, data));
+    }
 
     [Fact]
     public async Task Should_StreamTokens_And_PersistAnswer()
