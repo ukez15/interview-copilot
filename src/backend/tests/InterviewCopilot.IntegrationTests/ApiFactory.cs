@@ -29,6 +29,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public ScriptedStt Stt { get; } = new();
 
+    public FakeWhisperModel WhisperModel { get; } = new();
+
     public object Credentials(string username, string? secret = null) =>
         new Dictionary<string, string> { ["username"] = username, ["password"] = secret ?? TestSecret };
 
@@ -53,6 +55,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.AddSingleton<ILlmProvider>(Llm);
             services.RemoveAll<ISpeechToTextProvider>();
             services.AddSingleton<ISpeechToTextProvider>(Stt);
+            services.RemoveAll<IWhisperModelStatus>();
+            services.AddSingleton<IWhisperModelStatus>(WhisperModel);
         });
     }
 
@@ -87,6 +91,28 @@ public sealed class ScriptedLlm : ILlmProvider
         {
             await Task.Yield();
             yield return token;
+        }
+    }
+}
+
+/// <summary>Stands in for the Whisper model manager so no test downloads anything.</summary>
+public sealed class FakeWhisperModel : IWhisperModelStatus
+{
+    public WhisperModelState State { get; set; } = WhisperModelState.Missing;
+
+    public WhisperModelStatus GetStatus() => new(State, "ggml-small.en.bin", 5, 10, null);
+
+    public WhisperDownloadStart StartDownload()
+    {
+        switch (State)
+        {
+            case WhisperModelState.Downloading:
+                return WhisperDownloadStart.AlreadyDownloading;
+            case WhisperModelState.Ready:
+                return WhisperDownloadStart.AlreadyReady;
+            default:
+                State = WhisperModelState.Downloading;
+                return WhisperDownloadStart.Started;
         }
     }
 }

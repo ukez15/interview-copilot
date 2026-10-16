@@ -72,5 +72,9 @@ public static class DependencyInjection
         {
             services.AddSingleton<ISpeechToTextProvider, WhisperSpeechToTextProvider>();
         }
+
+        services.AddSingleton<IWhisperModelSource, GgmlWhisperModelSource>();
+        services.AddSingleton<WhisperModelManager>();
+        services.AddSingleton<IWhisperModelStatus>(provider => provider.GetRequiredService<WhisperModelManager>());
     }
 }

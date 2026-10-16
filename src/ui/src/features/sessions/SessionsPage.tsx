@@ -5,6 +5,7 @@ import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { useApp } from '@/lib/app-context';
 import type { CreateSessionInput, Session } from '@/types/api';
 import { SessionForm } from './SessionForm';
+import { SpeechModelBanner } from './SpeechModelBanner';
 
 export function SessionsPage() {
   const { api } = useApp();
@@ -42,6 +43,7 @@ export function SessionsPage() {
             <Link to="/settings">Settings</Link>
           </Button>
         </div>
+        <SpeechModelBanner />
         {error && (
           <p role="alert" className="text-sm text-destructive">
             {error}

@@ -106,6 +106,16 @@ export interface Providers {
   llm: ProviderInfo[];
 }
 
+export type WhisperModelState = 'missing' | 'downloading' | 'ready' | 'failed';
+
+export interface WhisperModel {
+  state: WhisperModelState;
+  model: string;
+  bytesDownloaded: number;
+  totalBytes: number | null;
+  message: string | null;
+}
+
 export interface AnswerHeader {
   questionType: QuestionType;
   version: number;

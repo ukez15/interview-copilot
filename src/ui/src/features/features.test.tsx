@@ -56,7 +56,8 @@ describe('SessionsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create session' }));
 
     expect(await screen.findByText('navigated')).toBeInTheDocument();
-    const body = JSON.parse(String(fetchImpl.mock.calls[1]![1]!.body)) as Record<string, unknown>;
+    const post = fetchImpl.mock.calls.find((call) => call[1]?.method === 'POST')!;
+    const body = JSON.parse(String(post[1]!.body)) as Record<string, unknown>;
     expect(body).toMatchObject({ title: 'Globex call', mode: 'Conversation', answerLength: 'Long', framework: 'Smart', pinnedQuestionType: null });
   });
 

@@ -26,7 +26,7 @@ public sealed class TranscriptionProvidersOptions
 
 public sealed class WhisperOptions
 {
-    /// <summary>ggml model file name; downloaded on first use into the models folder.</summary>
+    /// <summary>ggml model file name; downloaded on request into the models folder.</summary>
     public string Model { get; set; } = "ggml-small.en.bin";
 
     public string Language { get; set; } = "en";
