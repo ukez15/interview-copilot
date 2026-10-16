@@ -20,15 +20,29 @@ const MODE_LABELS: Record<SessionMode, string> = {
 const FRAMEWORK_LABELS = { None: 'No framework', Star: 'STAR', Smart: 'SMART' } as const;
 
 /** FR-01, FR-03..FR-06: everything set before a session starts. */
-export function SessionForm({ onSubmit, busy }: { onSubmit: (input: CreateSessionInput) => void; busy?: boolean }) {
-  const [input, setInput] = useState<CreateSessionInput>({
-    title: '',
-    mode: 'LiveInterview',
-    answerLength: 'Balanced',
-    framework: 'Star',
-    pinnedQuestionType: null,
-    sessionPrompt: '',
-  });
+export function SessionForm({
+  onSubmit,
+  busy,
+  variant = 'create',
+  initial,
+}: {
+  onSubmit: (input: CreateSessionInput) => void;
+  busy?: boolean;
+  /** "edit" (#10) hides title and mode, pre-fills from `initial` and shows "Save settings". */
+  variant?: 'create' | 'edit';
+  initial?: CreateSessionInput;
+}) {
+  const editing = variant === 'edit';
+  const [input, setInput] = useState<CreateSessionInput>(
+    initial ?? {
+      title: '',
+      mode: 'LiveInterview',
+      answerLength: 'Balanced',
+      framework: 'Star',
+      pinnedQuestionType: null,
+      sessionPrompt: '',
+    },
+  );
 
   function update<K extends keyof CreateSessionInput>(key: K, value: CreateSessionInput[K]) {
     setInput((current) => ({ ...current, [key]: value }));
@@ -41,21 +55,25 @@ export function SessionForm({ onSubmit, busy }: { onSubmit: (input: CreateSessio
 
   return (
     <form onSubmit={submit} className="grid gap-4">
-      <div className="grid gap-1.5">
-        <Label htmlFor="title">Title</Label>
-        <Input id="title" placeholder="Acme — senior engineer onsite" value={input.title} onChange={(e) => update('title', e.target.value)} required />
-      </div>
+      {!editing && (
+        <>
+          <div className="grid gap-1.5">
+            <Label htmlFor="title">Title</Label>
+            <Input id="title" placeholder="Acme — senior engineer onsite" value={input.title} onChange={(e) => update('title', e.target.value)} required />
+          </div>
 
-      <div className="grid gap-1.5">
-        <Label htmlFor="mode">Mode</Label>
-        <Select id="mode" value={input.mode} onChange={(e) => update('mode', e.target.value as SessionMode)}>
-          {Object.entries(MODE_LABELS).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </Select>
-      </div>
+          <div className="grid gap-1.5">
+            <Label htmlFor="mode">Mode</Label>
+            <Select id="mode" value={input.mode} onChange={(e) => update('mode', e.target.value as SessionMode)}>
+              {Object.entries(MODE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </Select>
+          </div>
+        </>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-1.5">
@@ -108,7 +126,7 @@ export function SessionForm({ onSubmit, busy }: { onSubmit: (input: CreateSessio
       </div>
 
       <Button type="submit" disabled={busy}>
-        Create session
+        {editing ? 'Save settings' : 'Create session'}
       </Button>
     </form>
   );

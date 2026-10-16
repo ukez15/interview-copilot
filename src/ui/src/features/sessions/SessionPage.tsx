@@ -7,6 +7,7 @@ import { DocumentsPanel } from '@/features/documents/DocumentsPanel';
 import { LiveAssistant } from '@/features/copilot/LiveAssistant';
 import { useApp } from '@/lib/app-context';
 import { QUESTION_TYPE_LABELS, type Session } from '@/types/api';
+import { SessionSettingsCard } from './SessionSettingsCard';
 
 export function SessionPage() {
   const { sessionId = '' } = useParams();
@@ -105,10 +106,13 @@ export function SessionPage() {
           </p>
         )}
       </Card>
-      <Card>
-        <CardTitle className="mb-4">Live assistant</CardTitle>
-        <LiveAssistant sessionId={session.id} />
-      </Card>
+      <div className="grid content-start gap-6">
+        <SessionSettingsCard session={session} onSaved={setSession} />
+        <Card>
+          <CardTitle className="mb-4">Live assistant</CardTitle>
+          <LiveAssistant sessionId={session.id} />
+        </Card>
+      </div>
     </main>
   );
 }
