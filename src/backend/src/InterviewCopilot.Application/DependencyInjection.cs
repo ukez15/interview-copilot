@@ -1,3 +1,4 @@
+using InterviewCopilot.Application.Audio;
 using InterviewCopilot.Application.Auth;
 using InterviewCopilot.Application.Copilot;
 using InterviewCopilot.Application.Documents;
@@ -23,6 +24,10 @@ public static class DependencyInjection
         services.AddScoped<AccountService>();
         services.AddScoped<TranscriptService>();
         services.AddScoped<AnswerGenerator>();
+
+        services.AddSingleton<AudioStatsSink>();
+        services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<AudioStatsSink>());
+        services.AddScoped<AudioIngestService>();
         return services;
     }
 }

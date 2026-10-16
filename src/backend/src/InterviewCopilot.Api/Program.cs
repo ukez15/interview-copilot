@@ -13,7 +13,18 @@ builder.AddServiceDefaults();
 builder.Services.AddApplication(builder.Configuration);
 builder.Services.AddInfrastructure(builder.Configuration);
 
-builder.Services.AddAuthentication(BearerTokenDefaults.AuthenticationScheme).AddBearerToken();
+builder.Services.AddAuthentication(BearerTokenDefaults.AuthenticationScheme).AddBearerToken(options =>
+    options.Events.OnMessageReceived = context =>
+    {
+        // Browsers can't set headers on WebSockets, so /ws/* takes the token from ?access_token=.
+        if (context.Request.Path.StartsWithSegments(AudioEndpoints.AudioPathPrefix.TrimEnd('/'), StringComparison.Ordinal)
+            && context.Request.Query.TryGetValue("access_token", out var token))
+        {
+            context.Token = token;
+        }
+
+        return Task.CompletedTask;
+    });
 builder.Services.AddAuthorization();
 // Enums travel as names ("LiveInterview", "Star") so the UI and extension stay readable.
 builder.Services.ConfigureHttpJsonOptions(options =>
@@ -36,6 +47,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 
 app.UseExceptionHandler();
 app.UseCors();
+app.UseWebSockets();
 app.UseAuthentication();
 app.UseAuthorization();
 
@@ -51,6 +63,7 @@ app.MapSessionEndpoints();
 app.MapDocumentEndpoints();
 app.MapCopilotEndpoints();
 app.MapTranscriptEndpoints();
+app.MapAudioEndpoints();
 
 await app.RunAsync();
 
