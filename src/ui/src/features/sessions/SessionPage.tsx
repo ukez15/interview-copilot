@@ -95,6 +95,9 @@ export function SessionPage() {
               End session
             </Button>
           )}
+          <Button asChild variant="outline">
+            <Link to={`/sessions/${session.id}/transcript`}>View transcript</Link>
+          </Button>
           <Button variant="outline" onClick={() => void exportPdf()}>
             Export PDF
           </Button>

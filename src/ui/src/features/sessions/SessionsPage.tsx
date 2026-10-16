@@ -49,12 +49,19 @@ export function SessionsPage() {
         )}
         {sessions.length === 0 && !error && <CardDescription>No sessions yet.</CardDescription>}
         {sessions.map((session) => (
-          <Link key={session.id} to={`/sessions/${session.id}`} className="rounded-[var(--radius-lg)] border border-border p-3 hover:bg-muted">
-            <div className="font-medium">{session.title}</div>
-            <div className="text-xs text-muted-foreground">
-              {session.status} · {new Date(session.createdAt).toLocaleString()} · {session.documents.length} docs
-            </div>
-          </Link>
+          <div key={session.id} className="flex items-center justify-between gap-2 rounded-[var(--radius-lg)] border border-border hover:bg-muted">
+            <Link to={`/sessions/${session.id}`} className="min-w-0 flex-1 p-3">
+              <div className="font-medium">{session.title}</div>
+              <div className="text-xs text-muted-foreground">
+                {session.status} · {new Date(session.createdAt).toLocaleString()} · {session.documents.length} docs
+              </div>
+            </Link>
+            {session.status === 'Ended' && (
+              <Link to={`/sessions/${session.id}/transcript`} className="p-3 text-sm underline">
+                View transcript
+              </Link>
+            )}
+          </div>
         ))}
       </section>
     </main>
