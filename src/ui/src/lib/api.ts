@@ -83,6 +83,16 @@ export class ApiClient {
     return this.json(`/api/sessions/${id}/settings`, { method: 'PUT', body: JSON.stringify(input) });
   }
 
+  /** #22: pause or resume automatic answers; the backend also announces it as `autoanswer.state`. */
+  setAutoAnswer(id: string, enabled: boolean): Promise<Session> {
+    return this.json(`/api/sessions/${id}/auto-answer`, { method: 'PUT', body: JSON.stringify({ enabled }) });
+  }
+
+  /** WebSocket URL of a session's events channel (same host as the API). The access token is added by the caller. */
+  eventsUrl(sessionId: string): string {
+    return `${this.baseUrl.replace(/^http/, 'ws')}/ws/sessions/${sessionId}/events`;
+  }
+
   getTranscript(id: string): Promise<Transcript> {
     return this.json(`/api/sessions/${id}/transcript`);
   }

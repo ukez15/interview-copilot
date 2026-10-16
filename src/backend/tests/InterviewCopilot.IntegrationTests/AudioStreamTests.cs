@@ -87,6 +87,69 @@ public sealed class AudioStreamTests : IClassFixture<ApiFactory>
         entry.Text.Should().Be("Walk me through your resume.");
     }
 
+    [Fact]
+    public async Task Should_PersistFinalSegment_When_SocketClosesMidSpeech()
+    {
+        _factory.Stt.Text = "Last words before the call dropped.";
+        var (client, token, session) = await LiveSessionAsync("audio-flush-close");
+        using var socket = await ConnectAsync(session.Id, token);
+
+        for (var i = 0; i < 5; i++)
+        {
+            await socket.SendAsync(LoudFrame(0), WebSocketMessageType.Binary, true, Ct);
+        }
+
+        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", Ct);
+
+        var transcript = await WaitForEntriesAsync(client, session.Id, 1);
+
+        var entry = transcript.Entries.Should().ContainSingle().Subject;
+        entry.Text.Should().Be("Last words before the call dropped.");
+        entry.AtMs.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Should_PersistFinalSegment_When_SocketClosedForMalformedFrame()
+    {
+        _factory.Stt.Text = "Spoken before the bad frame.";
+        var (client, token, session) = await LiveSessionAsync("audio-flush-bad");
+        using var socket = await ConnectAsync(session.Id, token);
+
+        for (var i = 0; i < 5; i++)
+        {
+            await socket.SendAsync(LoudFrame(1), WebSocketMessageType.Binary, true, Ct);
+        }
+
+        await socket.SendAsync(new byte[] { 7, 0, 0 }, WebSocketMessageType.Binary, true, Ct);
+        await socket.ReceiveAsync(new byte[64], Ct);
+
+        var transcript = await WaitForEntriesAsync(client, session.Id, 1);
+
+        socket.CloseStatus.Should().Be(WebSocketCloseStatus.InvalidMessageType);
+        var entry = transcript.Entries.Should().ContainSingle().Subject;
+        entry.Speaker.Should().Be(InterviewCopilot.Domain.Enums.Speaker.Candidate);
+        entry.Text.Should().Be("Spoken before the bad frame.");
+    }
+
+    [Fact]
+    public async Task Should_PersistFinalSegment_When_ClientAbortsWithoutClosing()
+    {
+        _factory.Stt.Text = "Cut off by a network drop.";
+        var (client, token, session) = await LiveSessionAsync("audio-flush-abort");
+        using var socket = await ConnectAsync(session.Id, token);
+
+        for (var i = 0; i < 5; i++)
+        {
+            await socket.SendAsync(LoudFrame(0), WebSocketMessageType.Binary, true, Ct);
+        }
+
+        socket.Abort();
+
+        var transcript = await WaitForEntriesAsync(client, session.Id, 1);
+
+        transcript.Entries.Should().ContainSingle().Which.Text.Should().Be("Cut off by a network drop.");
+    }
+
     private static async Task<TranscriptDto> WaitForEntriesAsync(HttpClient client, Guid sessionId, int count)
     {
         var deadline = DateTime.UtcNow.AddSeconds(10);

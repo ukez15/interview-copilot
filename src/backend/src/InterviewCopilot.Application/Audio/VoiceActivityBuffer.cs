@@ -56,6 +56,13 @@ public sealed class VoiceActivityBuffer
         return pauseReached || capReached ? Finish() : null;
     }
 
+    /// <summary>
+    /// Ends the speech in progress because the stream is over. Trailing silence is trimmed and speech shorter than
+    /// the minimum is dropped, as for a normal cut. The buffer is empty afterwards.
+    /// </summary>
+    /// <returns>The final segment, or null when nothing worth transcribing is buffered.</returns>
+    public SpeechSegment? Flush() => Finish();
+
     private SpeechSegment? Finish()
     {
         var voicedFrames = _frames.Count - _trailingSilentFrames;

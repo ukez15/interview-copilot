@@ -13,6 +13,8 @@ public sealed record CreateSessionRequest(
     QuestionType? PinnedQuestionType,
     string? SessionPrompt);
 
+public sealed record SetAutoAnswerRequest(bool Enabled);
+
 internal static class SessionEndpoints
 {
     public static void MapSessionEndpoints(this IEndpointRouteBuilder app)
@@ -46,6 +48,13 @@ internal static class SessionEndpoints
             ClaimsPrincipal user,
             SessionService sessions,
             CancellationToken ct) => sessions.UpdateSettingsAsync(user.UserId(), sessionId, request, ct));
+
+        group.MapPut("/{sessionId:guid}/auto-answer", (
+            Guid sessionId,
+            SetAutoAnswerRequest request,
+            ClaimsPrincipal user,
+            SessionService sessions,
+            CancellationToken ct) => sessions.SetAutoAnswerAsync(user.UserId(), sessionId, request.Enabled, ct));
 
         group.MapPost("/{sessionId:guid}/start", (Guid sessionId, ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
             sessions.StartAsync(user.UserId(), sessionId, ct));

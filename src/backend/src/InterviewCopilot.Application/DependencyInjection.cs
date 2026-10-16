@@ -29,6 +29,8 @@ public static class DependencyInjection
         services.AddScoped<TranscriptService>();
         services.AddScoped<AnswerGenerator>();
         services.AddScoped<PreferencesService>();
+        services.AddSingleton<AutoAnswerService>();
+        services.AddSingleton<ITranscriptSegmentListener>(provider => provider.GetRequiredService<AutoAnswerService>());
 
         services.AddSingleton<AudioStatsSink>();
         services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<AudioStatsSink>());

@@ -26,7 +26,23 @@ internal static class AudioEndpoints
 
                 await ingest.AuthorizeAsync(user.UserId(), sessionId, ct); // 404 / 409 before the upgrade
                 using var socket = await context.WebSockets.AcceptWebSocketAsync();
-                await ReceiveAsync(socket, sessionId, ingest, ct);
+                bool malformed;
+                try
+                {
+                    malformed = await ReceiveAsync(socket, sessionId, ingest, ct);
+                }
+                finally
+                {
+                    // Whatever ended the stream (close, bad frame, dropped client, shutdown), flush what was said.
+                    await ingest.EndStreamAsync(sessionId, CancellationToken.None);
+                }
+
+                if (malformed)
+                {
+                    // After the flush: this waits for the client's close reply, which a bad client may never send.
+                    await socket.CloseAsync(WebSocketCloseStatus.InvalidMessageType, "Malformed audio frame.", ct);
+                }
+
                 return Results.Empty;
             })
             .WithTags("Audio")
@@ -46,7 +62,8 @@ internal static class AudioEndpoints
             .RequireAuthorization();
     }
 
-    private static async Task ReceiveAsync(WebSocket socket, Guid sessionId, AudioIngestService ingest, CancellationToken ct)
+    /// <summary>Reads frames until the stream ends. Returns true when it ended on a malformed frame the caller must close for.</summary>
+    private static async Task<bool> ReceiveAsync(WebSocket socket, Guid sessionId, AudioIngestService ingest, CancellationToken ct)
     {
         // One byte more than the limit, so an oversized message is detectable.
         var buffer = new byte[AudioFrameParser.MaxMessageBytes + 1];
@@ -60,7 +77,7 @@ internal static class AudioEndpoints
                 if (result.MessageType == WebSocketMessageType.Close)
                 {
                     await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, ct);
-                    return;
+                    return false;
                 }
 
                 length += result.Count;
@@ -71,12 +88,13 @@ internal static class AudioEndpoints
                 || !result.EndOfMessage
                 || !AudioFrameParser.TryParse(buffer.AsMemory(0, length), out var frame))
             {
-                await socket.CloseAsync(WebSocketCloseStatus.InvalidMessageType, "Malformed audio frame.", ct);
-                return;
+                return true;
             }
 
             // Copy: the receive buffer is reused for the next message.
             await ingest.IngestAsync(sessionId, frame with { Pcm16 = frame.Pcm16.ToArray() }, ct);
         }
+
+        return false;
     }
 }
