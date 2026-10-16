@@ -63,6 +63,7 @@ if (app.Environment.IsDevelopment())
 app.MapDefaultEndpoints();
 app.MapAuthEndpoints();
 app.MapProviderEndpoints();
+app.MapStorageEndpoints();
 app.MapSessionEndpoints();
 app.MapDocumentEndpoints();
 app.MapCopilotEndpoints();

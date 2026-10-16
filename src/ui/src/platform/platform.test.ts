@@ -18,6 +18,7 @@ function fakeBridge(): DesktopBridge {
     startCapture: vi.fn().mockResolvedValue(status),
     stopCapture: vi.fn().mockResolvedValue(status),
     getCaptureStatus: vi.fn().mockResolvedValue(status),
+    openDataFolder: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -40,6 +41,8 @@ describe('platform', () => {
     await platform.startCapture('s1');
     await platform.stopCapture();
     expect(await platform.getCaptureStatus()).toEqual(status);
+    await platform.openDataFolder();
+    expect(bridge.openDataFolder).toHaveBeenCalled();
 
     expect(bridge.startCapture).toHaveBeenCalledWith('s1');
     expect(bridge.stopCapture).toHaveBeenCalled();
@@ -54,6 +57,7 @@ describe('platform', () => {
     expect(platform.kind).toBe('web');
     await expect(platform.setApiKey('openai', 'k')).rejects.toThrow('desktop app');
     expect(await platform.getApiKey('openai')).toBeNull();
+    await expect(platform.openDataFolder()).rejects.toThrow('Opening folders needs the desktop app.');
   });
 
   it('keeps web settings and token in memory', async () => {

@@ -6,6 +6,7 @@ import type {
   DocumentSummary,
   Providers,
   Session,
+  StorageInfo,
   SessionSettingsInput,
   Transcript,
 } from '@/types/api';
@@ -105,6 +106,10 @@ export class ApiClient {
 
   providers(): Promise<Providers> {
     return this.json('/api/providers');
+  }
+
+  getStorage(): Promise<StorageInfo> {
+    return this.json('/api/storage');
   }
 
   transcriptPdfUrl(sessionId: string): string {

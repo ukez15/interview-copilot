@@ -16,4 +16,5 @@ contextBridge.exposeInMainWorld('interviewCopilot', {
   startCapture: (sessionId: string) => ipcRenderer.invoke('capture:start', sessionId),
   stopCapture: () => ipcRenderer.invoke('capture:stop'),
   getCaptureStatus: () => ipcRenderer.invoke('capture:status'),
+  openDataFolder: () => ipcRenderer.invoke('storage:open-folder'),
 });

@@ -13,6 +13,7 @@ export const IpcChannels = {
   startCapture: 'capture:start',
   stopCapture: 'capture:stop',
   getCaptureStatus: 'capture:status',
+  openDataFolder: 'storage:open-folder',
 } as const;
 
 /** Channels used only by the hidden capture window (capture-preload.ts). */

@@ -18,6 +18,8 @@ export interface DesktopBridge {
   startCapture(sessionId: string): Promise<CaptureStatus>;
   stopCapture(): Promise<CaptureStatus>;
   getCaptureStatus(): Promise<CaptureStatus>;
+  /** Opens the backend's data folder in the OS file manager; the desktop main process finds the path itself. */
+  openDataFolder(): Promise<void>;
 }
 
 export interface DesktopSettings {
@@ -81,6 +83,7 @@ export function createWebPlatform(): Platform {
     startCapture: () => Promise.resolve(WEB_CAPTURE),
     stopCapture: () => Promise.resolve(WEB_CAPTURE),
     getCaptureStatus: () => Promise.resolve(WEB_CAPTURE),
+    openDataFolder: () => Promise.reject(new Error('Opening folders needs the desktop app.')),
   };
 }
 
@@ -100,6 +103,7 @@ export function createDesktopPlatform(bridge: DesktopBridge): Platform {
     startCapture: (sessionId) => bridge.startCapture(sessionId),
     stopCapture: () => bridge.stopCapture(),
     getCaptureStatus: () => bridge.getCaptureStatus(),
+    openDataFolder: () => bridge.openDataFolder(),
   };
 }
 

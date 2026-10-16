@@ -61,6 +61,7 @@ describe('ApiClient', () => {
     await api.uploadDocument('s1', new File(['x'], 'a.txt'));
     await api.removeDocument('s1', 'd1');
     await api.providers();
+    await api.getStorage();
     await api.downloadTranscriptPdf('s1');
 
     const calls = fetchImpl.mock.calls.map(([url, init]) => `${init?.method ?? 'GET'} ${String(url).replace('http://api.test', '')}`);
@@ -75,6 +76,7 @@ describe('ApiClient', () => {
       'POST /api/sessions/s1/documents',
       'DELETE /api/sessions/s1/documents/d1',
       'GET /api/providers',
+      'GET /api/storage',
       'GET /api/sessions/s1/transcript/pdf',
     ]);
     expect(api.transcriptPdfUrl('s1')).toBe('http://api.test/api/sessions/s1/transcript/pdf');

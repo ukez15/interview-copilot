@@ -50,6 +50,32 @@ public sealed class ApiTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Should_RequireAuthForStorageInfo()
+    {
+        var response = await _factory.CreateClient().GetAsync("/api/storage", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Should_ReturnConfiguredDataDirectory()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"ic-data-{Guid.NewGuid():N}");
+        using var factory = _factory.WithWebHostBuilder(builder => builder.UseSetting("Storage:DataDirectory", folder));
+        var client = factory.CreateClient();
+        (await client.PostAsJsonAsync("/api/auth/register", _factory.Credentials("storageuser"), Ct)).EnsureSuccessStatusCode();
+        var signIn = await client.PostAsJsonAsync("/api/auth/sign-in", _factory.Credentials("storageuser"), Ct);
+        var token = await signIn.Content.ReadFromJsonAsync<ApiFactory.TokenResponse>(Ct);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token!.AccessToken);
+
+        var response = await client.GetAsync("/api/storage", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        body.RootElement.GetProperty("dataDirectory").GetString().Should().Be(folder);
+    }
+
+    [Fact]
     public async Task Should_RejectWrongSecret()
     {
         await _factory.CreateSignedInClientAsync("wrongpw");

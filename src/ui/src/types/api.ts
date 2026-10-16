@@ -101,6 +101,11 @@ export interface ProviderInfo {
   isDefault: boolean;
 }
 
+/** Where the backend keeps its data on this computer. */
+export interface StorageInfo {
+  dataDirectory: string;
+}
+
 export interface Providers {
   speechToText: ProviderInfo[];
   llm: ProviderInfo[];

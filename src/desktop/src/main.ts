@@ -1,8 +1,9 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, net, protocol, safeStorage, session, webContents, type IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, net, protocol, safeStorage, session, shell, webContents, type IpcMainInvokeEvent } from 'electron';
 import { BackendProcess, packagedBackendPath, waitForHealthy } from './backend-process';
 import { CaptureController } from './capture-controller';
+import { openDataFolder } from './data-folder';
 import { APP_HOST, APP_PROTOCOL, BACKEND_URL, CaptureChannels, IpcChannels } from './ipc-channels';
 import { KeyStore } from './key-store';
 import { decide, detectMeetingApp, listProcessNames } from './meeting-detection';
@@ -73,6 +74,10 @@ function registerIpc(): void {
   handle(IpcChannels.startCapture, (sessionId) => capture.start(String(sessionId)));
   handle(IpcChannels.stopCapture, () => capture.stop());
   handle(IpcChannels.getCaptureStatus, () => capture.status);
+  // Privacy card: the main process asks the backend for the folder itself; no path is taken from the renderer.
+  handle(IpcChannels.openDataFolder, () =>
+    openDataFolder({ backendUrl: BACKEND_URL, getToken: () => authToken, fetchImpl: (url, init) => fetch(url, init), openPath: (folder) => shell.openPath(folder) }),
+  );
 
   // Capture-window channels: only that window's webContents is accepted (it receives the token).
   ipcMain.handle(CaptureChannels.getConfig, (event) => capture.configFor(event.sender.id));
