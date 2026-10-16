@@ -5,11 +5,13 @@ import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { Input, Label } from '@/components/ui/form';
 import { Slider } from '@/components/ui/slider';
 import { MicrophonePicker } from '@/features/audio/MicrophonePicker';
+import { ModelPicker } from '@/features/settings/ModelPicker';
 import { SignOutCard } from '@/features/settings/SignOutCard';
 import { useApp } from '@/lib/app-context';
 import { clampOpacity, OVERLAY_OPACITY } from '@/lib/utils';
 import { DEFAULT_SETTINGS, type DesktopSettings } from '@/platform';
 import type { ProviderInfo, Providers } from '@/types/api';
+import { SpeechModelCard } from './SpeechModelCard';
 
 export function SettingsPage() {
   const { api, platform } = useApp();
@@ -80,6 +82,9 @@ export function SettingsPage() {
           </span>
         </label>
       </Card>
+
+      <SpeechModelCard />
+      <ModelPicker />
 
       <Card className="grid gap-4">
         <CardTitle>Providers</CardTitle>

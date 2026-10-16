@@ -58,7 +58,8 @@ describe('SessionsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create session' }));
 
     expect(await screen.findByText('navigated')).toBeInTheDocument();
-    const body = JSON.parse(String(fetchImpl.mock.calls[1]![1]!.body)) as Record<string, unknown>;
+    const post = fetchImpl.mock.calls.find((call) => call[1]?.method === 'POST')!;
+    const body = JSON.parse(String(post[1]!.body)) as Record<string, unknown>;
     expect(body).toMatchObject({ title: 'Globex call', mode: 'Conversation', answerLength: 'Long', framework: 'Smart', pinnedQuestionType: null });
   });
 
@@ -212,8 +213,10 @@ describe('LiveAssistant and AnswerCard', () => {
 
 describe('SettingsPage', () => {
   it('changes opacity and auto-start, and saves a BYOK key when a provider needs one', async () => {
-    const { api } = fakeApi(() =>
-      json({
+    const { api } = fakeApi((url) =>
+      !url.endsWith('/api/providers')
+        ? json(url.endsWith('/models') ? [] : { llmModel: null })
+        : json({
         speechToText: [
           { name: 'whisper', displayName: 'Whisper (local, free)', isLocal: true, requiresApiKey: false, isDefault: true },
           { name: 'deepgram', displayName: 'Deepgram (cloud, paid)', isLocal: false, requiresApiKey: true, isDefault: false },
@@ -242,8 +245,10 @@ describe('SettingsPage', () => {
   it('confirms when the key is saved and shows provider load errors', async () => {
     const platform = createWebPlatform();
     vi.spyOn(platform, 'setApiKey').mockResolvedValue();
-    const { api } = fakeApi(() =>
-      json({ speechToText: [{ name: 'deepgram', displayName: 'Deepgram', isLocal: false, requiresApiKey: true, isDefault: true }], llm: [] }),
+    const { api } = fakeApi((url) =>
+      !url.endsWith('/api/providers')
+        ? json(url.endsWith('/models') ? [] : { llmModel: null })
+        : json({ speechToText: [{ name: 'deepgram', displayName: 'Deepgram', isLocal: false, requiresApiKey: true, isDefault: true }], llm: [] }),
     );
     renderWithApp(<SettingsPage />, { api, platform });
 
@@ -251,7 +256,7 @@ describe('SettingsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Saved to your OS keychain.')).toBeInTheDocument();
 
-    const failing = fakeApi(() => json({ detail: 'No providers' }, 500));
+    const failing = fakeApi((url) => (url.endsWith('/api/providers') ? json({ detail: 'No providers' }, 500) : json(url.endsWith('/models') ? [] : { llmModel: null })));
     renderWithApp(<SettingsPage />, { api: failing.api });
     expect(await screen.findByText('No providers')).toBeInTheDocument();
   });
@@ -270,7 +275,15 @@ describe('Sign-in persistence', () => {
   }
 
   it('signs out from Settings: clears the tokens and shows the sign-in page', async () => {
-    const { api } = fakeApi(() => json({ speechToText: [], llm: [] }));
+    // Settings also renders the model picker (#31) and speech-model card (#19): answer each endpoint properly.
+    const { api } = fakeApi((url) => {
+      if (url.endsWith('/api/providers/ollama/models')) return json([]);
+      if (url.endsWith('/api/preferences')) return json({ llmModel: null, defaultLlmModel: 'llama3.2:3b' });
+      if (url.endsWith('/api/providers/whisper/model')) {
+        return json({ state: 'ready', model: 'ggml-small.en.bin', bytesDownloaded: 0, totalBytes: null, message: null });
+      }
+      return json({ speechToText: [], llm: [] });
+    });
     const platform = createWebPlatform();
     await platform.setAuthTokens(tokens);
     renderApp(api, platform, '#/settings');

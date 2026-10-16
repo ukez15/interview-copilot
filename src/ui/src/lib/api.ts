@@ -4,10 +4,13 @@ import type {
   AnswerModifier,
   CreateSessionInput,
   DocumentSummary,
+  OllamaModel,
+  Preferences,
   Providers,
   Session,
   SessionSettingsInput,
   Transcript,
+  WhisperModel,
 } from '@/types/api';
 
 export const DEFAULT_API_BASE_URL = 'http://127.0.0.1:5480';
@@ -101,6 +104,16 @@ export class ApiClient {
     return this.json(`/api/sessions/${id}/settings`, { method: 'PUT', body: JSON.stringify(input) });
   }
 
+  /** #22: pause or resume automatic answers; the backend also announces it as `autoanswer.state`. */
+  setAutoAnswer(id: string, enabled: boolean): Promise<Session> {
+    return this.json(`/api/sessions/${id}/auto-answer`, { method: 'PUT', body: JSON.stringify({ enabled }) });
+  }
+
+  /** WebSocket URL of a session's events channel (same host as the API). The access token is added by the caller. */
+  eventsUrl(sessionId: string): string {
+    return `${this.baseUrl.replace(/^http/, 'ws')}/ws/sessions/${sessionId}/events`;
+  }
+
   getTranscript(id: string): Promise<Transcript> {
     return this.json(`/api/sessions/${id}/transcript`);
   }
@@ -125,6 +138,27 @@ export class ApiClient {
 
   providers(): Promise<Providers> {
     return this.json('/api/providers');
+  }
+
+  getWhisperModel(): Promise<WhisperModel> {
+    return this.json('/api/providers/whisper/model');
+  }
+
+  /** Starts the (user-initiated) speech model download; 409 means one is already running. */
+  downloadWhisperModel(): Promise<WhisperModel> {
+    return this.json('/api/providers/whisper/model/download', { method: 'POST' });
+  }
+
+  ollamaModels(): Promise<OllamaModel[]> {
+    return this.json('/api/providers/ollama/models');
+  }
+
+  getPreferences(): Promise<Preferences> {
+    return this.json('/api/preferences');
+  }
+
+  setLlmModel(llmModel: string | null): Promise<Preferences> {
+    return this.json('/api/preferences', { method: 'PUT', body: JSON.stringify({ llmModel }) });
   }
 
   transcriptPdfUrl(sessionId: string): string {

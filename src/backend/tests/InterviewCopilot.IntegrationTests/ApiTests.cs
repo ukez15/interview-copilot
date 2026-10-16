@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using FluentAssertions;
+using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Application.Sessions;
 using InterviewCopilot.Application.Transcripts;
 using UglyToad.PdfPig.Core;
@@ -169,5 +170,43 @@ public sealed class ApiTests : IClassFixture<ApiFactory>
         var body = await client.GetStringAsync("/api/providers", Ct);
 
         body.Should().Contain("whisper").And.Contain("ollama").And.NotContain("deepgram");
+    }
+
+    [Fact]
+    public async Task Should_RequireAuth_ForWhisperModelEndpoints()
+    {
+        var anonymous = _factory.CreateClient();
+
+        (await anonymous.GetAsync("/api/providers/whisper/model", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await anonymous.PostAsync("/api/providers/whisper/model/download", null, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Should_ReportWhisperModelState()
+    {
+        var client = await _factory.CreateSignedInClientAsync("whisper-state");
+        _factory.WhisperModel.State = WhisperModelState.Missing;
+
+        var body = await client.GetStringAsync("/api/providers/whisper/model", Ct);
+
+        body.Should().Contain("\"state\":\"missing\"").And.Contain("ggml-small.en.bin");
+    }
+
+    [Fact]
+    public async Task Should_StartWhisperDownload_Then_Conflict_Then_OkWhenReady()
+    {
+        var client = await _factory.CreateSignedInClientAsync("whisper-download");
+        _factory.WhisperModel.State = WhisperModelState.Missing;
+
+        var started = await client.PostAsync("/api/providers/whisper/model/download", null, Ct);
+        var again = await client.PostAsync("/api/providers/whisper/model/download", null, Ct);
+        _factory.WhisperModel.State = WhisperModelState.Ready;
+        var ready = await client.PostAsync("/api/providers/whisper/model/download", null, Ct);
+
+        started.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        (await started.Content.ReadAsStringAsync(Ct)).Should().Contain("\"state\":\"downloading\"");
+        again.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        ready.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ready.Content.ReadAsStringAsync(Ct)).Should().Contain("\"state\":\"ready\"");
     }
 }
