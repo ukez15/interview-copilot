@@ -36,12 +36,73 @@ describe('utils', () => {
   });
 });
 
+describe('ApiClient token refresh', () => {
+  const sessionsHandler = (accepted: string) => (url: string, init: RequestInit) =>
+    url.endsWith('/api/sessions') && new Headers(init.headers).get('Authorization') === `Bearer ${accepted}`
+      ? json([])
+      : new Response(null, { status: 401 });
+
+  it('refreshes once on a 401 and retries with the new token', async () => {
+    const { api, fetchImpl } = fakeApi(sessionsHandler('fresh'));
+    const refresh = vi.fn().mockResolvedValue('fresh');
+    const signedOut = vi.fn();
+    api.setAuthHandlers({ refresh, signedOut });
+
+    await expect(api.listSessions()).resolves.toEqual([]);
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(signedOut).not.toHaveBeenCalled();
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('signs out when the refresh fails', async () => {
+    const { api } = fakeApi(sessionsHandler('fresh'));
+    const signedOut = vi.fn();
+    api.setAuthHandlers({ refresh: () => Promise.resolve(null), signedOut });
+
+    await expect(api.listSessions()).rejects.toMatchObject({ status: 401 });
+    expect(signedOut).toHaveBeenCalledTimes(1);
+  });
+
+  it('signs out when the refresh throws or the retry is still unauthorized', async () => {
+    const throwing = fakeApi(sessionsHandler('fresh'));
+    const signedOut = vi.fn();
+    throwing.api.setAuthHandlers({ refresh: () => Promise.reject(new Error('x')), signedOut });
+    await expect(throwing.api.listSessions()).rejects.toBeInstanceOf(ApiError);
+
+    const stillBad = fakeApi(sessionsHandler('never'));
+    stillBad.api.setAuthHandlers({ refresh: () => Promise.resolve('fresh'), signedOut });
+    await expect(stillBad.api.listSessions()).rejects.toBeInstanceOf(ApiError);
+
+    expect(signedOut).toHaveBeenCalledTimes(2);
+  });
+
+  it('shares one refresh between concurrent requests', async () => {
+    const { api } = fakeApi(sessionsHandler('fresh'));
+    const refresh = vi.fn().mockResolvedValue('fresh');
+    api.setAuthHandlers({ refresh, signedOut: vi.fn() });
+
+    await Promise.all([api.listSessions(), api.listSessions()]);
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('never tries to refresh a failed sign-in', async () => {
+    const { api } = fakeApi(() => new Response(null, { status: 401 }));
+    const refresh = vi.fn();
+    api.setAuthHandlers({ refresh, signedOut: vi.fn() });
+
+    await expect(api.signIn('alice', 'wrong-password')).rejects.toBeInstanceOf(ApiError);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
 describe('ApiClient', () => {
   it('signs in and sends the bearer token afterwards', async () => {
-    const { api, fetchImpl } = fakeApi((url) => (url.endsWith('/sign-in') ? json({ accessToken: 'abc' }) : json([])));
+    const { api, fetchImpl } = fakeApi((url) => (url.endsWith('/sign-in') ? json({ accessToken: 'abc', refreshToken: 'ref' }) : json([])));
     api.setToken(null);
 
-    await api.signIn('alice', 'secret-value');
+    expect(await api.signIn('alice', 'secret-value')).toEqual({ accessToken: 'abc', refreshToken: 'ref' });
     await api.listSessions();
 
     const headers = new Headers(fetchImpl.mock.calls[1]![1]!.headers);

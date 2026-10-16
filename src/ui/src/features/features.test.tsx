@@ -15,8 +15,9 @@ import { SettingsPage } from './settings/SettingsPage';
 
 describe('SignInPage', () => {
   it('registers, signs in and shares the token with the platform', async () => {
-    const { api, fetchImpl } = fakeApi((url) => (url.endsWith('/sign-in') ? json({ accessToken: 'tok' }) : json({}, 201)));
+    const { api, fetchImpl } = fakeApi((url) => (url.endsWith('/sign-in') ? json({ accessToken: 'tok', refreshToken: 'ref' }) : json({}, 201)));
     const platform = createWebPlatform();
+    const setTokens = vi.spyOn(platform, 'setAuthTokens');
     renderWithApp(<SignInPage />, { api, platform });
 
     await userEvent.click(screen.getByRole('button', { name: /create an account/i }));
@@ -25,6 +26,7 @@ describe('SignInPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Create account' }));
 
     await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
+    expect(setTokens).toHaveBeenCalledWith({ accessToken: 'tok', refreshToken: 'ref' });
     expect(await platform.getAuthToken()).toBe('tok');
   });
 
@@ -255,6 +257,55 @@ describe('SettingsPage', () => {
   });
 });
 
+describe('Sign-in persistence', () => {
+  const tokens = { accessToken: 'tok', refreshToken: 'ref' };
+
+  function renderApp(api: ReturnType<typeof fakeApi>['api'], platform: ReturnType<typeof createWebPlatform>, hash: string) {
+    window.location.hash = hash;
+    return render(
+      <AppProvider api={api} platform={platform}>
+        <App />
+      </AppProvider>,
+    );
+  }
+
+  it('signs out from Settings: clears the tokens and shows the sign-in page', async () => {
+    const { api } = fakeApi(() => json({ speechToText: [], llm: [] }));
+    const platform = createWebPlatform();
+    await platform.setAuthTokens(tokens);
+    renderApp(api, platform, '#/settings');
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
+
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+    expect(await platform.getAuthToken()).toBeNull();
+  });
+
+  it('returns to the sign-in page when an expired session cannot be refreshed', async () => {
+    const { api } = fakeApi(() => new Response(null, { status: 401 }));
+    const platform = createWebPlatform();
+    await platform.setAuthTokens(tokens);
+    renderApp(api, platform, '#/');
+
+    // The startup token check signs in first, then the 401 + failed refresh signs out again.
+    await waitFor(async () => expect(await platform.getAuthToken()).toBeNull());
+    expect(await screen.findByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
+  });
+
+  it('keeps the user signed in when the refresh works', async () => {
+    const { api } = fakeApi((_url, init) =>
+      new Headers(init.headers).get('Authorization') === 'Bearer fresh' ? json([]) : new Response(null, { status: 401 }),
+    );
+    const platform = createWebPlatform();
+    await platform.setAuthTokens(tokens);
+    const refresh = vi.spyOn(platform, 'refreshAuth').mockResolvedValue('fresh');
+    renderApp(api, platform, '#/');
+
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(screen.queryByRole('heading', { name: 'Sign in' })).not.toBeInTheDocument();
+  });
+});
+
 describe('App shell', () => {
   it('shows sign-in until a token exists, then the overlay route', async () => {
     const { api } = fakeApi(() => json([]));
@@ -266,7 +317,7 @@ describe('App shell', () => {
     );
     expect(screen.getByRole('heading', { name: 'Sign in' })).toBeInTheDocument();
 
-    await platform.setAuthToken('tok');
+    await platform.setAuthTokens({ accessToken: 'tok', refreshToken: 'ref' });
     window.location.hash = '#/overlay/s1';
     view.unmount();
     render(

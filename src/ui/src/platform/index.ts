@@ -3,9 +3,15 @@
  * bridge; in a plain browser (Mode C) the web fallback is used. Never import electron in src/ui.
  */
 export interface DesktopBridge {
-  /** Held in the main process's memory only, so the overlay window shares the sign-in. */
+  /**
+   * The access token. Held in the main process's memory so the overlay window shares the sign-in; on
+   * desktop, startup restores it from the stored refresh token when possible.
+   */
   getAuthToken(): Promise<string | null>;
-  setAuthToken(token: string | null): Promise<void>;
+  /** Stores the sign-in (the desktop keeps the refresh token encrypted in the OS keychain); null signs out. */
+  setAuthTokens(tokens: AuthTokens | null): Promise<void>;
+  /** Exchanges the refresh token for a new access token; null when there is none or it no longer works. */
+  refreshAuth(): Promise<string | null>;
   getApiKey(provider: string): Promise<string | null>;
   setApiKey(provider: string, key: string): Promise<void>;
   deleteApiKey(provider: string): Promise<void>;
@@ -18,6 +24,11 @@ export interface DesktopBridge {
   startCapture(sessionId: string): Promise<CaptureStatus>;
   stopCapture(): Promise<CaptureStatus>;
   getCaptureStatus(): Promise<CaptureStatus>;
+}
+
+export interface AuthTokens {
+  accessToken: string;
+  refreshToken: string;
 }
 
 export interface DesktopSettings {
@@ -56,17 +67,18 @@ const WEB_CAPTURE: CaptureStatus = {
   message: 'Audio capture needs the desktop app.',
 };
 
-/** Mode C placeholder: no keychain, overlay or capture in a browser; keys are never put in web storage. */
+/** Mode C placeholder: no keychain, overlay or capture in a browser; keys and tokens are never put in web storage. */
 export function createWebPlatform(): Platform {
   let settings = { ...DEFAULT_SETTINGS };
-  let authToken: string | null = null;
+  let tokens: AuthTokens | null = null;
   return {
     kind: 'web',
-    getAuthToken: () => Promise.resolve(authToken),
-    setAuthToken: (token) => {
-      authToken = token;
+    getAuthToken: () => Promise.resolve(tokens?.accessToken ?? null),
+    setAuthTokens: (value) => {
+      tokens = value;
       return Promise.resolve();
     },
+    refreshAuth: () => Promise.resolve(null),
     getApiKey: () => Promise.resolve(null),
     setApiKey: () => Promise.reject(new Error('Saving API keys needs the desktop app.')),
     deleteApiKey: () => Promise.resolve(),
@@ -88,7 +100,8 @@ export function createDesktopPlatform(bridge: DesktopBridge): Platform {
   return {
     kind: 'desktop',
     getAuthToken: () => bridge.getAuthToken(),
-    setAuthToken: (token) => bridge.setAuthToken(token),
+    setAuthTokens: (tokens) => bridge.setAuthTokens(tokens),
+    refreshAuth: () => bridge.refreshAuth(),
     getApiKey: (provider) => bridge.getApiKey(provider),
     setApiKey: (provider, key) => bridge.setApiKey(provider, key),
     deleteApiKey: (provider) => bridge.deleteApiKey(provider),

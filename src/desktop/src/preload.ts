@@ -4,7 +4,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 // desktop.test.ts checks they match ipc-channels.ts.
 contextBridge.exposeInMainWorld('interviewCopilot', {
   getAuthToken: () => ipcRenderer.invoke('auth:get-token'),
-  setAuthToken: (token: string | null) => ipcRenderer.invoke('auth:set-token', token),
+  setAuthTokens: (tokens: { accessToken: string; refreshToken: string } | null) => ipcRenderer.invoke('auth:set-tokens', tokens),
+  refreshAuth: () => ipcRenderer.invoke('auth:refresh'),
   getApiKey: (provider: string) => ipcRenderer.invoke('keys:get', provider),
   setApiKey: (provider: string, key: string) => ipcRenderer.invoke('keys:set', provider, key),
   deleteApiKey: (provider: string) => ipcRenderer.invoke('keys:delete', provider),
