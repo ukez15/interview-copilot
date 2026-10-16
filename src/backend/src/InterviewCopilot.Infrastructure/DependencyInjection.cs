@@ -52,6 +52,12 @@ public static class DependencyInjection
             http.Timeout = Timeout.InfiniteTimeSpan; // streaming; cancellation comes from the request
         });
 
+        services.AddHttpClient<IOllamaModelCatalog, OllamaModelCatalog>((provider, http) =>
+        {
+            http.BaseAddress = provider.GetRequiredService<IOptions<LlmOptions>>().Value.Ollama.BaseUrl;
+            http.Timeout = TimeSpan.FromSeconds(5);
+        });
+
         AddSpeechToText(services, configuration);
         return services;
     }

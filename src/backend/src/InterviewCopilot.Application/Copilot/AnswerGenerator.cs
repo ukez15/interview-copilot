@@ -28,7 +28,8 @@ public sealed class AnswerGenerator(
     ILlmProvider llm,
     IOptions<LlmOptions> llmOptions,
     TimeProvider clock,
-    ISessionEventPublisher events)
+    ISessionEventPublisher events,
+    IUserPreferencesRepository preferences)
 {
     public const int RecentSegmentCount = 12;
 
@@ -55,7 +56,9 @@ public sealed class AnswerGenerator(
             request.PreviousAnswer);
 
         var options = llmOptions.Value;
-        var llmRequest = new LlmRequest(options.Model, AnswerPromptBuilder.Build(input), options.Temperature, request.ApiKey);
+        var preferred = (await preferences.GetAsync(session.OwnerId, cancellationToken))?.LlmModel;
+        var model = string.IsNullOrWhiteSpace(preferred) ? options.Model : preferred;
+        var llmRequest = new LlmRequest(model, AnswerPromptBuilder.Build(input), options.Temperature, request.ApiKey);
         var version = request.PreviousVersion + 1;
 
         return (new AnswerHeader(questionType, version),

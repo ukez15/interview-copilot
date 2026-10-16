@@ -210,8 +210,10 @@ describe('LiveAssistant and AnswerCard', () => {
 
 describe('SettingsPage', () => {
   it('changes opacity and auto-start, and saves a BYOK key when a provider needs one', async () => {
-    const { api } = fakeApi(() =>
-      json({
+    const { api } = fakeApi((url) =>
+      !url.endsWith('/api/providers')
+        ? json(url.endsWith('/models') ? [] : { llmModel: null })
+        : json({
         speechToText: [
           { name: 'whisper', displayName: 'Whisper (local, free)', isLocal: true, requiresApiKey: false, isDefault: true },
           { name: 'deepgram', displayName: 'Deepgram (cloud, paid)', isLocal: false, requiresApiKey: true, isDefault: false },
@@ -240,8 +242,10 @@ describe('SettingsPage', () => {
   it('confirms when the key is saved and shows provider load errors', async () => {
     const platform = createWebPlatform();
     vi.spyOn(platform, 'setApiKey').mockResolvedValue();
-    const { api } = fakeApi(() =>
-      json({ speechToText: [{ name: 'deepgram', displayName: 'Deepgram', isLocal: false, requiresApiKey: true, isDefault: true }], llm: [] }),
+    const { api } = fakeApi((url) =>
+      !url.endsWith('/api/providers')
+        ? json(url.endsWith('/models') ? [] : { llmModel: null })
+        : json({ speechToText: [{ name: 'deepgram', displayName: 'Deepgram', isLocal: false, requiresApiKey: true, isDefault: true }], llm: [] }),
     );
     renderWithApp(<SettingsPage />, { api, platform });
 
@@ -249,7 +253,7 @@ describe('SettingsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Saved to your OS keychain.')).toBeInTheDocument();
 
-    const failing = fakeApi(() => json({ detail: 'No providers' }, 500));
+    const failing = fakeApi((url) => (url.endsWith('/api/providers') ? json({ detail: 'No providers' }, 500) : json(url.endsWith('/models') ? [] : { llmModel: null })));
     renderWithApp(<SettingsPage />, { api: failing.api });
     expect(await screen.findByText('No providers')).toBeInTheDocument();
   });

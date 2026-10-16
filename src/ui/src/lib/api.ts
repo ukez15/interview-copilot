@@ -4,6 +4,8 @@ import type {
   AnswerModifier,
   CreateSessionInput,
   DocumentSummary,
+  OllamaModel,
+  Preferences,
   Providers,
   Session,
   SessionSettingsInput,
@@ -105,6 +107,18 @@ export class ApiClient {
 
   providers(): Promise<Providers> {
     return this.json('/api/providers');
+  }
+
+  ollamaModels(): Promise<OllamaModel[]> {
+    return this.json('/api/providers/ollama/models');
+  }
+
+  getPreferences(): Promise<Preferences> {
+    return this.json('/api/preferences');
+  }
+
+  setLlmModel(llmModel: string | null): Promise<Preferences> {
+    return this.json('/api/preferences', { method: 'PUT', body: JSON.stringify({ llmModel }) });
   }
 
   transcriptPdfUrl(sessionId: string): string {

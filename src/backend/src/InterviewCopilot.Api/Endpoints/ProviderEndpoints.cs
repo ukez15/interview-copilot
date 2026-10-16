@@ -13,5 +13,10 @@ internal static class ProviderEndpoints
         }))
         .WithTags("Providers")
         .RequireAuthorization();
+
+        app.MapGet("/api/providers/ollama/models", async (IOllamaModelCatalog catalog, CancellationToken ct) =>
+            TypedResults.Ok(await catalog.ListInstalledAsync(ct)))
+        .WithTags("Providers")
+        .RequireAuthorization();
     }
 }
