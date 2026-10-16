@@ -38,7 +38,7 @@
     <PackageVersion Include="xunit.v3" Version="4.0.2" />
     <PackageVersion Include="Microsoft.Testing.Extensions.CodeCoverage" Version="18.12.0" />
     <!-- 7.x is Apache-2.0; 8.x requires a commercial licence. Stay on 7.x. -->
-    <PackageVersion Include="FluentAssertions" Version="7.2.2" />
+    <PackageVersion Include="FluentAssertions" Version="8.11.0" />
     <PackageVersion Include="NetArchTest.Rules" Version="1.3.2" />
     <PackageVersion Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
   </ItemGroup>
