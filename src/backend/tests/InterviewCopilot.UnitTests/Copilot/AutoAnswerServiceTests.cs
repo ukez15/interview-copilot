@@ -7,6 +7,7 @@ using InterviewCopilot.Application.Events;
 using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
+using InterviewCopilot.UnitTests.Services;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -44,6 +45,7 @@ public sealed class AutoAnswerServiceTests : IDisposable
         services.AddSingleton<ISessionRepository>(_store);
         services.AddSingleton<ITranscriptRepository>(_store);
         services.AddSingleton<IUnitOfWork>(_store);
+        services.AddSingleton<IUserPreferencesRepository>(new InMemoryPreferences()); // AnswerGenerator dependency since #31
         services.AddScoped<ILlmProvider>(provider => _llm);
         services.AddSingleton<ISessionEventPublisher>(_events);
         services.AddSingleton<TimeProvider>(new FixedClock());
