@@ -64,9 +64,33 @@ public sealed class LlmOptions
     public double Temperature { get; set; } = 0.4;
 
     public OllamaOptions Ollama { get; set; } = new();
+
+    public AnthropicOptions Anthropic { get; set; } = new();
+
+    public OpenAiOptions OpenAi { get; set; } = new();
+
+    public GoogleOptions Google { get; set; } = new();
 }
 
 public sealed class OllamaOptions
 {
     public Uri BaseUrl { get; set; } = new("http://127.0.0.1:11434/");
+}
+
+/// <summary>Anthropic Messages API endpoint (#30). The provider is only used when the user picks it and supplies a key.</summary>
+public sealed class AnthropicOptions
+{
+    public Uri BaseUrl { get; set; } = new("https://api.anthropic.com/");
+}
+
+/// <summary>OpenAI Chat Completions endpoint (#30).</summary>
+public sealed class OpenAiOptions
+{
+    public Uri BaseUrl { get; set; } = new("https://api.openai.com/");
+}
+
+/// <summary>Google Gemini endpoint (#30).</summary>
+public sealed class GoogleOptions
+{
+    public Uri BaseUrl { get; set; } = new("https://generativelanguage.googleapis.com/");
 }
