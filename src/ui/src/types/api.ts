@@ -28,6 +28,9 @@ export type Speaker = 'Interviewer' | 'Candidate';
 /** FR-02 */
 export const MAX_DOCUMENTS_PER_SESSION = 10;
 
+/** Mirrors SessionLimits.MaxTitleLength in the backend. */
+export const MAX_SESSION_TITLE_LENGTH = 200;
+
 export interface DocumentSummary {
   id: string;
   fileName: string;

@@ -152,4 +152,69 @@ public sealed class JobPostingApiTests : IClassFixture<ApiFactory>
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
+
+    private const string PreviewRoute = "/api/documents/from-link/preview";
+
+    [Fact]
+    public async Task Should_ReturnSessionFreePreview_When_PageHasJsonLd()
+    {
+        _factory.Fetcher.Respond = url => new FetchedPage(url, Page);
+        var client = await _factory.CreateSignedInClientAsync("jd-free-ok");
+
+        var response = await client.PostAsJsonAsync(PreviewRoute, new { Url = "https://jobs.example.com/roles/2" }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        body.RootElement.GetProperty("suggestedName").GetString().Should().Be("Backend Engineer - Acme.txt");
+        body.RootElement.GetProperty("text").GetString().Should().Be("Backend Engineer\nAcme\n\nBuild APIs.\n\n- C#");
+        body.RootElement.GetProperty("source").GetString().Should().Be("JsonLd");
+    }
+
+    [Fact]
+    public async Task Should_StoreNothing_When_SessionFreePreviewSucceeds()
+    {
+        _factory.Fetcher.Respond = url => new FetchedPage(url, Page);
+        var (client, session) = await SignedInWithSessionAsync("jd-free-nostore");
+
+        (await client.PostAsJsonAsync(PreviewRoute, new { Url = "https://jobs.example.com/roles/2" }, Ct)).EnsureSuccessStatusCode();
+
+        var fetched = await client.GetFromJsonAsync<SessionDto>($"/api/sessions/{session.Id}", Json, Ct);
+        fetched!.Documents.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Should_Return400WithPasteInstead_When_SessionFreePageHasNoJobDescription()
+    {
+        _factory.Fetcher.Respond = url => new FetchedPage(url, "<html><head><title>Sign in</title></head><body><div id=\"root\"></div></body></html>");
+        var client = await _factory.CreateSignedInClientAsync("jd-free-empty");
+
+        var response = await client.PostAsJsonAsync(PreviewRoute, new { Url = "https://jobs.example.com/wall" }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        body.RootElement.GetProperty("detail").GetString()
+            .Should().Be("We couldn't read a job description from that page. Paste the text instead.");
+    }
+
+    [Fact]
+    public async Task Should_Return400WithoutFetching_When_SessionFreeUrlIsNotHttp()
+    {
+        var client = await _factory.CreateSignedInClientAsync("jd-free-badurl");
+        var before = _factory.Fetcher.Requested.Count;
+
+        var response = await client.PostAsJsonAsync(PreviewRoute, new { Url = "file:///c:/x" }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        body.RootElement.GetProperty("detail").GetString().Should().Be("Enter a link that starts with http:// or https://.");
+        _factory.Fetcher.Requested.Count.Should().Be(before);
+    }
+
+    [Fact]
+    public async Task Should_Return401_When_NotSignedInToSessionFreePreview()
+    {
+        var response = await _factory.CreateClient().PostAsJsonAsync(PreviewRoute, new { Url = "https://jobs.example.com/a" }, Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
 }

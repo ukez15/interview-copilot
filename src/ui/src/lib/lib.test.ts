@@ -121,6 +121,7 @@ describe('ApiClient', () => {
     await api.endSession('s1');
     await api.uploadDocument('s1', new File(['x'], 'a.txt'));
     await api.previewJobPosting('s1', 'https://jobs.test/1');
+    await api.previewJobPostingLink('https://jobs.test/1');
     await api.removeDocument('s1', 'd1');
     await api.providers();
     await api.getStorage();
@@ -137,6 +138,7 @@ describe('ApiClient', () => {
       'POST /api/sessions/s1/end',
       'POST /api/sessions/s1/documents',
       'POST /api/sessions/s1/documents/from-link/preview',
+      'POST /api/documents/from-link/preview',
       'DELETE /api/sessions/s1/documents/d1',
       'GET /api/providers',
       'GET /api/storage',

@@ -158,6 +158,11 @@ export class ApiClient {
     return this.json(`/api/sessions/${sessionId}/documents/from-link/preview`, { method: 'POST', body: JSON.stringify({ url }) });
   }
 
+  /** Same as `previewJobPosting` but with no session yet: used by the create-session form. */
+  previewJobPostingLink(url: string): Promise<JobPostingPreview> {
+    return this.json('/api/documents/from-link/preview', { method: 'POST', body: JSON.stringify({ url }) });
+  }
+
   async removeDocument(sessionId: string, documentId: string): Promise<void> {
     await this.send(`/api/sessions/${sessionId}/documents/${documentId}`, { method: 'DELETE' });
   }

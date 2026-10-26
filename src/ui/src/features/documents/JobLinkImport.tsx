@@ -1,26 +1,10 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input, Label, Textarea } from '@/components/ui/form';
+import { Input, Label } from '@/components/ui/form';
 import { useApp } from '@/lib/app-context';
 import type { DocumentSummary } from '@/types/api';
-
-const INVALID_LINK = 'Enter a link that starts with http:// or https://.';
-const UNREADABLE = "We couldn't read a job description from that page. Paste the text instead.";
-
-interface Draft {
-  name: string;
-  text: string;
-}
-
-/** The link's http(s) URL, or null when it isn't one. */
-function parseLink(value: string): URL | null {
-  try {
-    const url = new URL(value.trim());
-    return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
-  } catch {
-    return null;
-  }
-}
+import { JobDraftEditor } from './JobDraftEditor';
+import { INVALID_LINK, UNREADABLE, normaliseTxtName, parseLink, type JobDraft } from './job-link';
 
 /** Reads a job description from a link into an editable draft; nothing is saved until "Add to documents". */
 export function JobLinkImport({
@@ -36,7 +20,7 @@ export function JobLinkImport({
 }) {
   const { api } = useApp();
   const [link, setLink] = useState('');
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [draft, setDraft] = useState<JobDraft | null>(null);
   const [fetching, setFetching] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -68,9 +52,7 @@ export function JobLinkImport({
     setError(null);
     setSaving(true);
     try {
-      const trimmed = draft.name.trim();
-      const name = /\.txt$/i.test(trimmed) ? trimmed : `${trimmed}.txt`;
-      const created = await api.uploadDocument(sessionId, new File([draft.text], name, { type: 'text/plain' }));
+      const created = await api.uploadDocument(sessionId, new File([draft.text], normaliseTxtName(draft.name), { type: 'text/plain' }));
       onChange([...documents, created]);
       setLink('');
       setDraft(null);
@@ -105,24 +87,14 @@ export function JobLinkImport({
         </div>
       </div>
       {draft && (
-        <div className="grid gap-2">
-          <div className="grid gap-1">
-            <Label htmlFor="job-name">Document name</Label>
-            <Input id="job-name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} />
-          </div>
-          <div className="grid gap-1">
-            <Label htmlFor="job-text">Job description</Label>
-            <Textarea id="job-text" rows={10} value={draft.text} onChange={(event) => setDraft({ ...draft, text: event.target.value })} />
-          </div>
-          <div className="flex gap-2">
-            <Button disabled={saving || !draft.name.trim() || !draft.text.trim()} onClick={save}>
-              Add to documents
-            </Button>
-            <Button variant="ghost" onClick={cancel}>
-              Cancel
-            </Button>
-          </div>
-        </div>
+        <JobDraftEditor draft={draft} onChange={setDraft}>
+          <Button disabled={saving || !draft.name.trim() || !draft.text.trim()} onClick={save}>
+            Add to documents
+          </Button>
+          <Button variant="ghost" onClick={cancel}>
+            Cancel
+          </Button>
+        </JobDraftEditor>
       )}
       {error && (
         <p role="alert" className="text-sm text-destructive">

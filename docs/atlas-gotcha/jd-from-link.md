@@ -254,3 +254,42 @@ Adjustments and decisions made during the build (for the owner's review):
 
 Not covered by automated tests: a real fetch against live job sites (tests use synthetic HTML), and the
 OpenTelemetry filter lambda itself.
+
+---
+
+## Change 1: paste a job link into the session Title (owner request, 2026-10-26)
+
+Owner's words: "when i paste jd link into title, it should be able to pick the jd from that link".
+In the manual test the owner looked for the link box in the create-session form, not in the
+Documents panel (which only exists after a session is created).
+
+Owner decisions (2026-10-26, all recommendations accepted):
+- **Trigger: on paste.** Pasting an http(s) link into the create form's Title (empty or fully selected)
+  fetches the JD at once. Typing a normal title never triggers it.
+- **Title becomes `<Job title> - <Company>`** from the posting (the suggested name without `.txt`),
+  falling back to the page title, then the site name; still editable.
+- **Editable preview** under the Title (same editor as the Documents panel). On Create the session is
+  made and the JD is saved as its first document. Nothing is stored before Create.
+- **Failure: paste box.** Show the reason and the empty editor; the Title keeps what was pasted.
+
+Design within those decisions:
+- New endpoint, not tied to a session (there is none yet):
+  `POST /api/documents/from-link/preview`, body `{ url }`, same response and errors as the session one.
+  The session-scoped endpoint stays (it also checks the 10-document limit).
+- `SessionForm` gains the paste behaviour in its `create` variant only, and `onSubmit(input, jobDescription?: File)`.
+  `SessionsPage` uploads the file after creating the session; if that upload fails it stays on the
+  page with the error and the new session in the list. `StartFromMeetingPage` uploads it before
+  starting; an upload failure there doesn't block the live start (the meeting is already on).
+- The editor is shared between the Documents panel and the form. In the form it has "Cancel" (drop the
+  JD) but no save button; a status line "Getting job description…" shows while fetching, and Create
+  is disabled meanwhile.
+
+Also in this change: dropdown lists matched the app theme (owner report: "plain white", unreadable).
+`index.css` sets `color-scheme: light dark` and gives `select option` the theme background and text.
+
+Also from the manual test (owner, 2026-10-26):
+- Real job links work, both in the Title and in the Documents panel.
+- The Documents file picker is now an outline button labelled "Choose files" (the native input is
+  visually hidden but keeps keyboard focus and the "Add documents" accessible name), so it reads as clickable.
+- **Owner decision: keep the "Job posting link" box in the Documents panel.** Title paste only exists
+  while creating a session; the panel box is the way to add a JD from a link to an existing session.

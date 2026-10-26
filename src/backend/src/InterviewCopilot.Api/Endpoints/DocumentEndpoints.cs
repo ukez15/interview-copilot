@@ -41,5 +41,11 @@ internal static class DocumentEndpoints
             await documents.RemoveAsync(user.UserId(), sessionId, documentId, ct);
             return TypedResults.NoContent();
         });
+
+        // The create-session form has no session yet, so it previews a pasted job link here. Same result and errors
+        // as the session-scoped preview above, minus the document-limit check.
+        app.MapGroup("/api/documents").WithTags("Documents").RequireAuthorization()
+            .MapPost("/from-link/preview", async (JobPostingLinkRequest request, JobPostingImportService import, CancellationToken ct) =>
+                TypedResults.Ok(await import.PreviewAsync(request.Url, ct)));
     }
 }

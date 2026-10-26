@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
@@ -208,6 +208,50 @@ describe('StartFromMeetingPage', () => {
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/sessions/n1'));
     expect(platform.startCapture).toHaveBeenCalledWith('n1');
     expect(platform.showOverlay).toHaveBeenCalledWith('n1');
+  });
+
+  describe('with a job link pasted into the title', () => {
+    const LINK = 'https://jobs.test/roles/1';
+    const preview = { suggestedName: 'Fresh - Acme.txt', text: 'Build things.', source: 'JsonLd' };
+
+    function withJobLink(uploadResponse: Response) {
+      return setup((url, init) => {
+        if (url.endsWith('/from-link/preview')) return json(preview);
+        if (url.endsWith('/sessions/n1/documents') && init.method === 'POST') return uploadResponse;
+        if (init.method === 'POST' && url.endsWith('/api/sessions')) return json(session({ id: 'n1', title: 'Fresh' }), 201);
+        if (url.endsWith('/sessions/n1/start')) return json(session({ id: 'n1', status: 'Live' }));
+        return null;
+      });
+    }
+
+    async function pasteAndCreate() {
+      await screen.findByText('Draft one');
+      fireEvent.paste(screen.getByLabelText('Title'), { clipboardData: { getData: () => LINK } });
+      await screen.findByLabelText('Job description');
+      await userEvent.click(screen.getByRole('button', { name: 'Create session' }));
+    }
+
+    it('uploads the job description, then starts and goes to the session', async () => {
+      const { platform, fetchImpl } = withJobLink(json({ id: 'd9', fileName: 'Fresh - Acme.txt', characterCount: 13, createdAt: '' }, 201));
+
+      await pasteAndCreate();
+
+      await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/sessions/n1'));
+      const upload = fetchImpl.mock.calls.find(([url]) => String(url).endsWith('/sessions/n1/documents'))!;
+      expect(((upload[1]!.body as FormData).get('file') as File).name).toBe('Fresh - Acme.txt');
+      expect(platform.startCapture).toHaveBeenCalledWith('n1');
+      expect(platform.showOverlay).toHaveBeenCalledWith('n1');
+    });
+
+    it('still starts the meeting when the upload fails', async () => {
+      const { platform } = withJobLink(json({ detail: 'Document limit reached.' }, 400));
+
+      await pasteAndCreate();
+
+      await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/sessions/n1'));
+      expect(platform.startCapture).toHaveBeenCalledWith('n1');
+      expect(platform.showOverlay).toHaveBeenCalledWith('n1');
+    });
   });
 
   it('shows an error and stays when starting fails', async () => {

@@ -70,6 +70,14 @@ public sealed class JobPostingImportService(SessionService sessions, IWebPageFet
                 $"A session can have at most {SessionLimits.MaxDocumentsPerSession} documents. Remove one first.");
         }
 
+        return await PreviewAsync(url, cancellationToken);
+    }
+
+    /// <summary>
+    /// Same preview without a session, for a link pasted into the create-session form before the session exists.
+    /// </summary>
+    public async Task<JobPostingPreviewDto> PreviewAsync(string url, CancellationToken cancellationToken)
+    {
         var uri = ParseUrl(url);
         var page = await fetcher.FetchAsync(uri, cancellationToken);
         var extracted = extractor.Extract(page.Html, page.FinalUri);

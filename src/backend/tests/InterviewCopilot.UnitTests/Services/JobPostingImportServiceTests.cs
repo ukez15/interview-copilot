@@ -243,6 +243,36 @@ public class JobPostingImportServiceTests
     }
 
     [Fact]
+    public async Task Should_PreviewWithoutSession_When_UsingSessionFreeOverload()
+    {
+        var preview = await _service.PreviewAsync("https://jobs.example.com/roles/42", Ct);
+
+        preview.Should().Be(new JobPostingPreviewDto("Backend Engineer - Acme.txt", "Build APIs.", JobPostingSource.JsonLd));
+        _fetcher.Requested.Should().Be(new Uri("https://jobs.example.com/roles/42"));
+        _store.SaveCount.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Should_RejectBadUrlWithoutFetching_When_UsingSessionFreeOverload()
+    {
+        var act = () => _service.PreviewAsync("file:///c:/x", Ct);
+
+        (await act.Should().ThrowAsync<DomainException>()).WithMessage("Enter a link that starts with http:// or https://.");
+        _fetcher.Calls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Should_ThrowPasteInstead_When_UsingSessionFreeOverloadAndNothingFound()
+    {
+        _extractor.Result = null;
+
+        var act = () => _service.PreviewAsync("https://jobs.example.com/roles/42", Ct);
+
+        (await act.Should().ThrowAsync<DomainException>())
+            .WithMessage("We couldn't read a job description from that page. Paste the text instead.");
+    }
+
+    [Fact]
     public void Should_ExposeFetchLimits()
     {
         JobPostingImportService.FetchTimeout.Should().Be(TimeSpan.FromSeconds(15));

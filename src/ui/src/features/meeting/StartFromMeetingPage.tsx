@@ -48,9 +48,17 @@ export function StartFromMeetingPage() {
       return session.id;
     });
 
-  const createAndStart = (input: CreateSessionInput) =>
+  const createAndStart = (input: CreateSessionInput, jobDescription?: File) =>
     run(async () => {
       const created = await api.createSession(input);
+      if (jobDescription) {
+        try {
+          await api.uploadDocument(created.id, jobDescription);
+        } catch {
+          // The meeting is already on, so a failed job description upload must not block the live start. The user
+          // can add it from the session's Documents panel.
+        }
+      }
       await startLiveSession(api, platform, created.id);
       await platform.showOverlay(created.id);
       return created.id;
@@ -85,7 +93,7 @@ export function StartFromMeetingPage() {
       </section>
       <Card>
         <CardTitle className="mb-4">New session</CardTitle>
-        <SessionForm onSubmit={(input) => void createAndStart(input)} busy={busy} />
+        <SessionForm onSubmit={(input, jobDescription) => void createAndStart(input, jobDescription)} busy={busy} />
       </Card>
     </main>
   );
