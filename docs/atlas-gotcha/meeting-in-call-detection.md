@@ -1,6 +1,14 @@
 # Brief: detect "in a call", not "meeting app running". ATLAS + GOTCHA, compact
 
-Status: **draft, waiting for owner decisions** (2026-10-26). Nothing is built yet.
+Status: **approved by owner** (2026-10-26).
+
+Owner decisions (2026-10-26):
+- **D1:** Windows uses the registry mic-in-use signal AND the process must be running.
+- **D2:** if the registry can't be read, or the app has no entry, **no prompt** (no process-only fallback).
+- **D3:** browser meetings are out of scope.
+- **D4:** macOS keeps the process-based check; follow-up issue #59 tracks options 5/6.
+- **D5:** prompt again for each call.
+- **D6:** ships as a PR after the beta.
 
 Found in the #36 beta smoke test: `watchForMeetings` (`src/desktop/src/main.ts`) asks "meeting
 detected, start InterviewCopilot?" whenever Zoom, Teams, Slack, Discord and similar are *running*.
@@ -120,3 +128,19 @@ the fallback for macOS < 14.2.
 - **Heuristics:** pure parsers, side effects only in thin `exec` wrappers; no new native deps; never
   start capture without a click unless auto-start; pnpm only; no push without the owner's OK.
 - **Args:** D1–D6 above.
+
+## What we adjusted (after the build)
+
+- **Goals:** met on Windows. Teams or Zoom open with no call → no prompt; holding the mic → prompt, and
+  again on the next call. Checked against this PC's real registry (no call → `null`). **Still open:** the
+  manual in-call check from Assemble step 5 (join a call, leave and rejoin, stay muted), which needs a
+  real Teams/Zoom call.
+- **Orchestration:** as planned, tests first. `listProcessNames` was folded into `currentMeeting`, which
+  takes an injectable `run` so the Windows/macOS/failure paths are unit-tested without spawning processes.
+- **Tools:** `reg query` and `tasklist` run in parallel. No new dependency.
+- **Context:** `MEETING_PACKAGES` only has `MSTeams_8wekyb3d8bbwe` (new Teams), the one Store package
+  verified on a real machine. Store builds of Zoom, Slack or Discord aren't mapped. Their desktop
+  installers (NonPackaged) are, through `MEETING_APPS`. Add family names when seen on a real install.
+- **Heuristics:** D2 applies to any read failure on both platforms: an error gives `null` (no prompt).
+  On macOS this replaces the old `.catch(() => [])`, which had the same effect.
+- **Args:** D1–D6 applied; macOS follow-up is #59. Desktop coverage 97.6% statements, 93.2% branches.

@@ -101,9 +101,10 @@ default local models on the hardware above. Measured results: [`docs/benchmarks/
 
 - **macOS: microphone only.** The macOS beta can't capture the other side of the call yet (#15), so
   only your own voice is transcribed. The macOS builds haven't been tested on a real Mac yet.
-- **Meeting prompt when a meeting app is merely open.** Detection checks whether Zoom, Teams, Slack and
-  similar apps are running, not whether you're in a call. So with Teams open in the background you'll
-  be asked once per app launch. Click **Not now**.
+- **Meeting prompt on macOS when a meeting app is merely open.** On Windows the app asks only when Zoom,
+  Teams, Slack and similar apps are using your microphone, so once per call. On macOS it still checks
+  whether those apps are running, so with Teams open in the background you'll be asked once per app
+  launch. Click **Not now**. Meetings in a browser tab aren't detected; start a session yourself.
 - **First answer is slower.** Ollama loads the model on the first question, which can take a few seconds.
 - **Unsigned installers**, as described above, and **no auto-update**: download new versions from Releases.
 
