@@ -15,12 +15,21 @@ export interface AnswerState {
 const IDLE: AnswerState = { question: '', text: '', questionType: null, version: 0, status: 'idle', error: null };
 
 /** Streams answers for one session; a new question cancels the previous stream (atlas/copilot-pipeline.md). */
-export function useAnswerStream(sessionId: string, llmProvider = 'ollama') {
+export function useAnswerStream(sessionId: string, fallbackProvider = 'ollama') {
   const { api, platform } = useApp();
   const [answer, setAnswer] = useState<AnswerState>(IDLE);
   const controller = useRef<AbortController | null>(null);
   /** True from an auto-answered `question.detected` until its `answer.done`; only then are answer events applied. */
   const autoActive = useRef(false);
+
+  const effectiveProvider = useCallback(async () => {
+    try {
+      const prefs = await api.getPreferences();
+      return prefs.llmProvider || prefs.defaultLlmProvider || fallbackProvider;
+    } catch {
+      return fallbackProvider;
+    }
+  }, [api, fallbackProvider]);
 
   const ask = useCallback(
     async (question: string, modifier: AnswerModifier = 'None', previous?: AnswerState) => {
@@ -30,7 +39,8 @@ export function useAnswerStream(sessionId: string, llmProvider = 'ollama') {
       controller.current = abort;
       setAnswer({ ...IDLE, question, status: 'streaming', version: previous?.version ?? 0 });
 
-      const llmApiKey = (await platform.getApiKey(llmProvider)) ?? undefined;
+      // Manual answers of a session without a live key hand-off carry the key of the account's chat provider (#30).
+      const llmApiKey = (await platform.getApiKey(await effectiveProvider())) ?? undefined;
       try {
         await api.ask(
           sessionId,
@@ -55,7 +65,7 @@ export function useAnswerStream(sessionId: string, llmProvider = 'ollama') {
         }
       }
     },
-    [api, platform, sessionId, llmProvider],
+    [api, platform, sessionId, effectiveProvider],
   );
 
   /** Starts showing an automatic answer for a detected question (#22); a newer one replaces it. */

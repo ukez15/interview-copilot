@@ -200,8 +200,9 @@ public class Wave3ContractTests
 
         (await service.SetSpeechToTextProviderAsync(user, "whisper", Ct)).SpeechToTextProvider.Should().Be("whisper");
 
-        var cloud = () => service.SetLlmAsync(user, "openai", "gpt", Ct);
-        await cloud.Should().ThrowAsync<DomainException>();
+        (await service.SetLlmAsync(user, "openai", "gpt", Ct)).LlmProvider.Should().Be("openai");
+        var unknown = () => service.SetLlmAsync(user, "skynet", "gpt", Ct);
+        await unknown.Should().ThrowAsync<DomainException>();
         var deepgram = () => service.SetSpeechToTextProviderAsync(user, "deepgram", Ct);
         await deepgram.Should().ThrowAsync<DomainException>();
 
