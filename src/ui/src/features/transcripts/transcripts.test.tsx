@@ -88,7 +88,7 @@ describe('TranscriptPage', () => {
     URL.createObjectURL = vi.fn(() => 'blob:x');
     URL.revokeObjectURL = vi.fn();
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
-    const fetchImpl = renderPage((url) => (url.endsWith('/pdf') ? new Response(new Blob(['%PDF'])) : json(transcript)));
+    const fetchImpl = renderPage((url) => (url.endsWith('/pdf') ? new Response('%PDF', { headers: { 'Content-Type': 'application/pdf' } }) : json(transcript)));
 
     await userEvent.click(await screen.findByRole('button', { name: 'Export PDF' }));
 
