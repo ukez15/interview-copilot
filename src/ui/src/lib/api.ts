@@ -163,6 +163,11 @@ export class ApiClient {
     return this.json('/api/documents/from-link/preview', { method: 'POST', body: JSON.stringify({ url }) });
   }
 
+  /** #80: permanently deletes a session that isn't live, with its documents, transcript and practice attempts. */
+  async deleteSession(sessionId: string): Promise<void> {
+    await this.send(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+  }
+
   async removeDocument(sessionId: string, documentId: string): Promise<void> {
     await this.send(`/api/sessions/${sessionId}/documents/${documentId}`, { method: 'DELETE' });
   }
