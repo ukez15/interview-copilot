@@ -18,6 +18,10 @@ public static class Extensions
     private const string HealthEndpointPath = "/health";
     private const string AlivenessEndpointPath = "/alive";
 
+    // Requests carrying this option are not traced, because their URLs can hold tokens (job-posting links).
+    // Must match SafeWebPageFetcher.SkipTracingOptionName in InterviewCopilot.Infrastructure.
+    private const string SkipTracingOptionName = "InterviewCopilot.SkipTracing";
+
     public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder)
         where TBuilder : IHostApplicationBuilder
     {
@@ -47,7 +51,8 @@ public static class Extensions
                     options.Filter = context =>
                         !context.Request.Path.StartsWithSegments(HealthEndpointPath, StringComparison.Ordinal)
                         && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath, StringComparison.Ordinal))
-                .AddHttpClientInstrumentation());
+                .AddHttpClientInstrumentation(options =>
+                    options.FilterHttpRequestMessage = request => !IsMarkedSkipTracing(request)));
 
         if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
         {
@@ -64,6 +69,9 @@ public static class Extensions
             .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
         return builder;
     }
+
+    private static bool IsMarkedSkipTracing(HttpRequestMessage request) =>
+        request.Options.TryGetValue(new HttpRequestOptionsKey<bool>(SkipTracingOptionName), out var skip) && skip;
 
     public static WebApplication MapDefaultEndpoints(this WebApplication app)
     {

@@ -41,14 +41,47 @@ public class ProviderCatalogTests
         var llm = Catalog(deepgramEnabled: false).LlmProviders();
         var defaults = new LlmOptions();
 
-        llm.Should().ContainSingle().Which.Should().Match<ProviderInfo>(p => p.IsLocal && !p.RequiresApiKey && p.IsDefault);
+        llm.Where(p => p.IsDefault).Should().ContainSingle().Which.Name.Should().Be(ProviderNames.Ollama);
+        llm.Single(p => p.Name == ProviderNames.Ollama).Should().Match<ProviderInfo>(p => p.IsLocal && !p.RequiresApiKey);
+        llm.Where(p => !p.IsLocal).Should().OnlyContain(p => p.RequiresApiKey);
         defaults.Model.Should().Be("llama3.2:3b");
         new TranscriptionOptions().Providers.Deepgram.Enabled.Should().BeFalse();
     }
 
     [Fact]
+    public void Should_ListCloudChatProviders_WithConfiguredDefault()
+    {
+        var catalog = new ProviderCatalog(
+            Options.Create(new TranscriptionOptions()),
+            Options.Create(new LlmOptions { Provider = "OpenAI" }));
+
+        var llm = catalog.LlmProviders();
+
+        llm.Select(p => p.Name).Should().Equal(ProviderNames.Ollama, ProviderNames.Anthropic, ProviderNames.OpenAi, ProviderNames.Google);
+        llm.Select(p => p.DisplayName).Should().Equal(
+            "Ollama (local, free)",
+            "Anthropic (cloud, your key)",
+            "OpenAI (cloud, your key)",
+            "Google Gemini (cloud, your key)");
+        llm.Where(p => p.IsDefault).Should().ContainSingle().Which.Name.Should().Be(ProviderNames.OpenAi);
+    }
+
+    [Fact]
+    public void Should_DefaultCloudBaseUrls()
+    {
+        var options = new LlmOptions();
+
+        options.Anthropic.BaseUrl.Should().Be(new Uri("https://api.anthropic.com/"));
+        options.OpenAi.BaseUrl.Should().Be(new Uri("https://api.openai.com/"));
+        options.Google.BaseUrl.Should().Be(new Uri("https://generativelanguage.googleapis.com/"));
+    }
+
+    [Fact]
     public void Should_KeepMessages_When_ProviderExceptionsConstructed()
     {
+        new LlmKeyRejectedException().Should().NotBeNull();
+        new LlmKeyRejectedException("k").Message.Should().Be("k");
+        new LlmKeyRejectedException("k", new InvalidOperationException()).InnerException.Should().NotBeNull();
         new LlmUnavailableException().Should().NotBeNull();
         new LlmUnavailableException("x").Message.Should().Be("x");
         new TranscriptionUnavailableException().Should().NotBeNull();

@@ -20,5 +20,5 @@ const overlay = createOverlay(document, {
 
 document.documentElement.append(overlay.host);
 void chrome.runtime.sendMessage({ kind: 'status' }).then((status: StatusResponse) =>
-  overlay.setSessions(status.sessions, status.signedIn ? status.error : 'Sign in from the InterviewCopilot extension popup.'),
+  overlay.setSessions(status.sessions, status.paired ? status.error : (status.error ?? 'Pair the extension from the InterviewCopilot extension popup.')),
 );

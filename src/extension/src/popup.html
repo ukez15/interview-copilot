@@ -15,17 +15,16 @@
   </head>
   <body>
     <strong>InterviewCopilot</strong>
-    <form id="sign-in" hidden>
+    <form id="pair" hidden>
       <div style="display: grid; gap: 6px">
-        <input id="username" aria-label="Username" placeholder="Username" autocomplete="username" required />
-        <input id="password" aria-label="Password" type="password" placeholder="Password" autocomplete="current-password" required />
-        <button type="submit">Sign in</button>
-        <span class="muted">Use your InterviewCopilot desktop account. The desktop app must be running.</span>
+        <input id="code" aria-label="Pairing code" placeholder="6-digit pairing code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="off" required />
+        <button type="submit">Pair</button>
+        <span class="muted">In the desktop app, open Settings, then Paired browsers, and click Pair a browser. The desktop app must be running.</span>
       </div>
     </form>
-    <section id="signed-in" hidden>
+    <section id="paired" hidden>
       <p id="sessions" class="muted"></p>
-      <button id="sign-out" type="button">Sign out</button>
+      <button id="unpair" type="button">Unpair</button>
     </section>
     <p id="error" class="error" role="alert"></p>
     <script src="popup.js"></script>

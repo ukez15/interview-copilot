@@ -1,9 +1,12 @@
 # Release channels (CLAUDE.md): tag vX.Y.Z-beta.N → GitHub pre-release (beta); tag vX.Y.Z → release.
 # Installers are unsigned by design (zero-cost principle); README explains the OS warnings.
+# Manual runs (workflow_dispatch) build the installers and extension as workflow artifacts only, so the
+# pipeline can be checked before a tag; only a tag publishes a release (#36).
 name: release
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -44,6 +47,7 @@ jobs:
           dotnet publish src/backend/src/InterviewCopilot.Api -c Release -r ${{ matrix.rid }} --self-contained
           -p:PublishSingleFile=false -o src/desktop/backend-publish
       - name: Set app version from tag
+        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -87,6 +91,7 @@ jobs:
 
   publish:
     name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
     needs: [desktop, extension]
     runs-on: ubuntu-latest
     steps:

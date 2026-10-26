@@ -31,6 +31,7 @@ jobs:
     name: Secure — SAST (CodeQL)
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false # one language failing must not hide the other's results
       matrix:
         language: [csharp, javascript-typescript]
     steps:
@@ -58,6 +59,30 @@ jobs:
           fail-on-severity: high
           # MIT project: block copyleft licences that would conflict with distribution.
           deny-licenses: GPL-2.0, GPL-3.0, AGPL-3.0
+
+  vulnerabilities:
+    # dependency review only sees what a PR changes; this re-checks everything already in the lockfiles,
+    # and the weekly schedule catches CVEs published after a dependency was merged.
+    name: Secure — known vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: JS dependencies that ship (fail on high or critical)
+        run: pnpm audit --prod --audit-level high
+      - name: JS dev dependencies (warn only)
+        run: pnpm audit --dev --audit-level high || echo "::warning::pnpm audit found high/critical advisories in dev dependencies (see log)"
+      - name: .NET packages (fail on high or critical)
+        run: |
+          dotnet restore src/backend/InterviewCopilot.slnx
+          dotnet list src/backend/InterviewCopilot.slnx package --vulnerable --include-transitive | tee vulnerable.txt
+          if grep -Eq '\s(High|Critical)\s' vulnerable.txt; then echo "Vulnerable .NET packages (high/critical)."; exit 1; fi
 
   auditable:
     name: Auditable — SBOM + conventional commits
@@ -99,7 +124,7 @@ jobs:
   governance-gate:
     name: Governance gate
     if: always()
-    needs: [secrets, codeql, dependencies, auditable]
+    needs: [secrets, codeql, dependencies, vulnerabilities, auditable]
     runs-on: ubuntu-latest
     steps:
       - name: All invariant jobs passed

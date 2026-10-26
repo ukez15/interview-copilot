@@ -49,13 +49,94 @@ export function parsePs(output: string): string[] {
     .filter(Boolean);
 }
 
-export async function listProcessNames(platform: NodeJS.Platform = process.platform): Promise<string[]> {
-  if (platform === 'win32') {
-    const { stdout } = await execFileAsync('tasklist', ['/fo', 'csv', '/nh'], { windowsHide: true });
-    return parseTasklist(stdout);
+/** Store (packaged) meeting apps, by the package family name Windows uses in the consent store. */
+export const MEETING_PACKAGES: Record<string, string> = {
+  MSTeams_8wekyb3d8bbwe: 'Microsoft Teams',
+};
+
+/** Per-app microphone use that Windows records for its "app is using your microphone" indicator. */
+export const MICROPHONE_CONSENT_STORE =
+  'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone';
+
+export interface MicrophoneUse {
+  /** Package family name, or the exe path with `#` for `\` for desktop (NonPackaged) apps. */
+  key: string;
+  inUse: boolean;
+}
+
+/**
+ * Parses `reg query <consent store> /s` output. An app holds the mic while LastUsedTimeStop is 0;
+ * keys without usage timestamps (never used, or the NonPackaged folder itself) are skipped.
+ */
+export function parseConsentStore(output: string): MicrophoneUse[] {
+  const uses: MicrophoneUse[] = [];
+  let key = '';
+  let start: bigint | null = null;
+  let stop: bigint | null = null;
+  const flush = (): void => {
+    if (key && start !== null && stop !== null) {
+      uses.push({ key, inUse: start > 0n && stop === 0n });
+    }
+  };
+  for (const line of output.split(/\r?\n/)) {
+    if (line.startsWith('HKEY_')) {
+      flush();
+      key = line.trim().split('\\').pop() ?? '';
+      start = stop = null;
+      continue;
+    }
+    const [, name, hex] = /^\s+(LastUsedTimeStart|LastUsedTimeStop)\s+REG_QWORD\s+(0x[0-9a-f]+)/i.exec(line) ?? [];
+    if (name === 'LastUsedTimeStart' && hex) {
+      start = BigInt(hex);
+    } else if (name && hex) {
+      stop = BigInt(hex);
+    }
   }
-  const { stdout } = await execFileAsync('ps', ['-axo', 'comm=']);
-  return parsePs(stdout);
+  flush();
+  return uses;
+}
+
+export function meetingAppForConsentKey(key: string): string | null {
+  if (key.includes('#')) {
+    return MEETING_APPS[normalizeProcessName(key.split('#').pop() ?? '')] ?? null;
+  }
+  return MEETING_PACKAGES[key] ?? null;
+}
+
+/** A meeting is on while its app holds the mic and is still running (a crash can leave a stale entry). */
+export function detectActiveMeeting(processNames: readonly string[], consentStoreOutput: string): string | null {
+  const running = new Set(processNames.map((name) => MEETING_APPS[normalizeProcessName(name)]).filter(Boolean));
+  for (const use of parseConsentStore(consentStoreOutput)) {
+    const app = use.inUse ? meetingAppForConsentKey(use.key) : null;
+    if (app && running.has(app)) {
+      return app;
+    }
+  }
+  return null;
+}
+
+export type RunCommand = (command: string, args: string[]) => Promise<string>;
+
+const runCommand: RunCommand = async (command, args) => (await execFileAsync(command, args, { windowsHide: true })).stdout;
+
+/**
+ * The meeting in progress, or null. Windows: a meeting app holding the mic. macOS has no equivalent
+ * signal without a native helper yet, so it still uses "meeting app running". If anything can't be
+ * read, there's no prompt: a missed prompt beats a false one.
+ */
+export async function currentMeeting(platform: NodeJS.Platform = process.platform, run: RunCommand = runCommand): Promise<string | null> {
+  try {
+    if (platform === 'win32') {
+      const [tasks, consentStore] = await Promise.all([
+        run('tasklist', ['/fo', 'csv', '/nh']),
+        run('reg', ['query', MICROPHONE_CONSENT_STORE, '/s']),
+      ]);
+      return detectActiveMeeting(parseTasklist(tasks), consentStore);
+    }
+    return detectMeetingApp(parsePs(await run('ps', ['-axo', 'comm='])));
+  } catch {
+    return null;
+  }
 }
 
 export type MeetingDecision = 'ignore' | 'ask' | 'start';
@@ -69,4 +150,21 @@ export function decide(previous: string | null, current: string | null, autoStar
     return 'ignore';
   }
   return autoStart ? 'start' : 'ask';
+}
+
+/** Sent to the renderer (IpcEvents.meetingDetected) once the user agreed, or auto-start applies. */
+export interface MeetingDetectedEvent {
+  app: string;
+  autoStart: boolean;
+}
+
+/**
+ * NFR-12: the renderer is only told to go ahead after the user clicked "Start InterviewCopilot"
+ * (autoStart false: it shows a picker) or when auto-start is on (autoStart true).
+ */
+export function meetingEventFor(decision: MeetingDecision, app: string, userAccepted: boolean): MeetingDetectedEvent | null {
+  if (decision === 'start') {
+    return { app, autoStart: true };
+  }
+  return decision === 'ask' && userAccepted ? { app, autoStart: false } : null;
 }

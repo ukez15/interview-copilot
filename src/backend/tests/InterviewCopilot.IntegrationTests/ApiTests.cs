@@ -5,8 +5,13 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using FluentAssertions;
+using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Application.Sessions;
 using InterviewCopilot.Application.Transcripts;
+using InterviewCopilot.Domain.Enums;
+using UglyToad.PdfPig.Core;
+using UglyToad.PdfPig.Fonts.Standard14Fonts;
+using UglyToad.PdfPig.Writer;
 
 namespace InterviewCopilot.IntegrationTests;
 
@@ -47,6 +52,32 @@ public sealed class ApiTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Should_RequireAuthForStorageInfo()
+    {
+        var response = await _factory.CreateClient().GetAsync("/api/storage", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Should_ReturnConfiguredDataDirectory()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"ic-data-{Guid.NewGuid():N}");
+        using var factory = _factory.WithWebHostBuilder(builder => builder.UseSetting("Storage:DataDirectory", folder));
+        var client = factory.CreateClient();
+        (await client.PostAsJsonAsync("/api/auth/register", _factory.Credentials("storageuser"), Ct)).EnsureSuccessStatusCode();
+        var signIn = await client.PostAsJsonAsync("/api/auth/sign-in", _factory.Credentials("storageuser"), Ct);
+        var token = await signIn.Content.ReadFromJsonAsync<ApiFactory.TokenResponse>(Ct);
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token!.AccessToken);
+
+        var response = await client.GetAsync("/api/storage", Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        using var body = JsonDocument.Parse(await response.Content.ReadAsStringAsync(Ct));
+        body.RootElement.GetProperty("dataDirectory").GetString().Should().Be(folder);
+    }
+
+    [Fact]
     public async Task Should_RejectWrongSecret()
     {
         await _factory.CreateSignedInClientAsync("wrongpw");
@@ -78,6 +109,67 @@ public sealed class ApiTests : IClassFixture<ApiFactory>
         ended.StatusCode.Should().Be(HttpStatusCode.OK);
         fetched!.Documents.Should().ContainSingle().Which.FileName.Should().Be("resume.txt");
         list.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Should_CopySessionWithTenDocuments_And_HideItFromOtherUsers()
+    {
+        var client = await _factory.CreateSignedInClientAsync("copier");
+        var stranger = await _factory.CreateSignedInClientAsync("copy-stranger");
+        var source = await (await client.PostAsJsonAsync("/api/sessions", NewSession, Ct)).Content.ReadFromJsonAsync<SessionDto>(Json, Ct);
+        for (var i = 0; i < 10; i++)
+        {
+            using var form = new MultipartFormDataContent();
+            var file = new ByteArrayContent(Encoding.UTF8.GetBytes($"Document number {i}."));
+            file.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
+            form.Add(file, "file", $"doc{i}.txt");
+            (await client.PostAsync($"/api/sessions/{source!.Id}/documents", form, Ct)).StatusCode.Should().Be(HttpStatusCode.Created);
+        }
+
+        var response = await client.PostAsJsonAsync(
+            "/api/sessions",
+            new { Title = "Zoom meeting – 16 Oct 14:05", Mode = "Conversation", AnswerLength = "Long", Framework = "None", SessionPrompt = "ignored", CopyFromSessionId = source!.Id },
+            Ct);
+        var copy = await response.Content.ReadFromJsonAsync<SessionDto>(Json, Ct);
+        var denied = await stranger.PostAsJsonAsync(
+            "/api/sessions",
+            new { Title = "Stolen", Mode = "LiveInterview", AnswerLength = "Short", Framework = "None", CopyFromSessionId = source.Id },
+            Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        copy!.Title.Should().Be("Zoom meeting – 16 Oct 14:05");
+        copy.Mode.Should().Be(SessionMode.LiveInterview);
+        copy.AnswerLength.Should().Be(AnswerLength.Short);
+        copy.Framework.Should().Be(AnswerFramework.Star);
+        copy.SessionPrompt.Should().Be("Two senior engineers.");
+        copy.Documents.Should().HaveCount(10);
+        denied.StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Should_AttachPdfDocument_And_RejectCorruptPdf()
+    {
+        var client = await _factory.CreateSignedInClientAsync("pdfupload");
+        var created = await (await client.PostAsJsonAsync("/api/sessions", NewSession, Ct)).Content.ReadFromJsonAsync<SessionDto>(Json, Ct);
+        var builder = new PdfDocumentBuilder();
+        builder.AddPage(595, 842).AddText("Led a team of five at Acme.", 12, new PdfPoint(25, 700), builder.AddStandard14Font(Standard14Font.Helvetica));
+
+        var good = await client.PostAsync($"/api/sessions/{created!.Id}/documents", PdfForm(builder.Build(), "resume.pdf"), Ct);
+        var bad = await client.PostAsync($"/api/sessions/{created.Id}/documents", PdfForm([1, 2, 3], "broken.pdf"), Ct);
+        var fetched = await client.GetFromJsonAsync<SessionDto>($"/api/sessions/{created.Id}", Json, Ct);
+
+        good.StatusCode.Should().Be(HttpStatusCode.Created);
+        bad.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        fetched!.Documents.Should().ContainSingle().Which.FileName.Should().Be("resume.pdf");
+    }
+
+    private static MultipartFormDataContent PdfForm(byte[] bytes, string fileName)
+    {
+        var form = new MultipartFormDataContent();
+        var file = new ByteArrayContent(bytes);
+        file.Headers.ContentType = new MediaTypeHeaderValue("application/pdf");
+        form.Add(file, "file", fileName);
+        return form;
     }
 
     [Fact]
@@ -140,5 +232,43 @@ public sealed class ApiTests : IClassFixture<ApiFactory>
         var body = await client.GetStringAsync("/api/providers", Ct);
 
         body.Should().Contain("whisper").And.Contain("ollama").And.NotContain("deepgram");
+    }
+
+    [Fact]
+    public async Task Should_RequireAuth_ForWhisperModelEndpoints()
+    {
+        var anonymous = _factory.CreateClient();
+
+        (await anonymous.GetAsync("/api/providers/whisper/model", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await anonymous.PostAsync("/api/providers/whisper/model/download", null, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+    }
+
+    [Fact]
+    public async Task Should_ReportWhisperModelState()
+    {
+        var client = await _factory.CreateSignedInClientAsync("whisper-state");
+        _factory.WhisperModel.State = WhisperModelState.Missing;
+
+        var body = await client.GetStringAsync("/api/providers/whisper/model", Ct);
+
+        body.Should().Contain("\"state\":\"missing\"").And.Contain("ggml-small.en.bin");
+    }
+
+    [Fact]
+    public async Task Should_StartWhisperDownload_Then_Conflict_Then_OkWhenReady()
+    {
+        var client = await _factory.CreateSignedInClientAsync("whisper-download");
+        _factory.WhisperModel.State = WhisperModelState.Missing;
+
+        var started = await client.PostAsync("/api/providers/whisper/model/download", null, Ct);
+        var again = await client.PostAsync("/api/providers/whisper/model/download", null, Ct);
+        _factory.WhisperModel.State = WhisperModelState.Ready;
+        var ready = await client.PostAsync("/api/providers/whisper/model/download", null, Ct);
+
+        started.StatusCode.Should().Be(HttpStatusCode.Accepted);
+        (await started.Content.ReadAsStringAsync(Ct)).Should().Contain("\"state\":\"downloading\"");
+        again.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        ready.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await ready.Content.ReadAsStringAsync(Ct)).Should().Contain("\"state\":\"ready\"");
     }
 }

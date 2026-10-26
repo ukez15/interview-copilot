@@ -31,9 +31,18 @@ public sealed class ProviderCatalog(IOptions<TranscriptionOptions> transcription
         return
         [
             new(ProviderNames.Ollama, "Ollama (local, free)", IsLocal: true, RequiresApiKey: false,
-                IsDefault: options.Provider == ProviderNames.Ollama),
+                IsDefault: IsConfigured(options, ProviderNames.Ollama)),
+            Cloud(options, ProviderNames.Anthropic, "Anthropic (cloud, your key)"),
+            Cloud(options, ProviderNames.OpenAi, "OpenAI (cloud, your key)"),
+            Cloud(options, ProviderNames.Google, "Google Gemini (cloud, your key)"),
         ];
     }
+
+    private static ProviderInfo Cloud(LlmOptions options, string name, string displayName) =>
+        new(name, displayName, IsLocal: false, RequiresApiKey: true, IsDefault: IsConfigured(options, name));
+
+    private static bool IsConfigured(LlmOptions options, string name) =>
+        string.Equals(options.Provider, name, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Guards against using a provider that is disabled in configuration.</summary>
     public bool IsSpeechToTextProviderAvailable(string name) =>

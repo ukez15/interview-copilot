@@ -35,3 +35,21 @@ public sealed class TranscriptionUnavailableException : Exception
     {
     }
 }
+
+/// <summary>The cloud provider rejected the BYOK key (HTTP 401/403). Message is user-facing and never contains the key.</summary>
+public sealed class LlmKeyRejectedException : Exception
+{
+    public LlmKeyRejectedException()
+    {
+    }
+
+    public LlmKeyRejectedException(string message)
+        : base(message)
+    {
+    }
+
+    public LlmKeyRejectedException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+}
