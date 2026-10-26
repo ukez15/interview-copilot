@@ -1,22 +1,22 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using InterviewCopilot.Application.Providers;
-using InterviewCopilot.Infrastructure.Persistence;
 using Microsoft.Extensions.Options;
 using Whisper.net;
-using Whisper.net.Ggml;
 
 namespace InterviewCopilot.Infrastructure.Transcription;
 
 /// <summary>
 /// Local, free speech-to-text with whisper.cpp via Whisper.net (default, NFR-01). The model is
-/// downloaded once into the user-data models folder and loaded lazily.
+/// downloaded by <see cref="WhisperModelManager"/> (only when the user asks) and loaded lazily.
 /// </summary>
 [ExcludeFromCodeCoverage(Justification = "Needs native whisper.cpp + a ~500 MB model; covered by the manual release checklist.")]
 internal sealed class WhisperSpeechToTextProvider(
     IOptions<TranscriptionOptions> transcriptionOptions,
-    IOptions<StorageOptions> storageOptions) : ISpeechToTextProvider, IDisposable
+    WhisperModelManager modelManager) : ISpeechToTextProvider, IDisposable
 {
+    internal const string ModelMissingMessage = "The speech model isn't downloaded yet. Download it in Settings → Speech model.";
+
     private readonly SemaphoreSlim _loadLock = new(1, 1);
     private WhisperFactory? _factory;
 
@@ -60,7 +60,8 @@ internal sealed class WhisperSpeechToTextProvider(
         {
             if (_factory is null)
             {
-                var path = await EnsureModelAsync(cancellationToken);
+                var path = modelManager.GetReadyPath()
+                    ?? throw new TranscriptionUnavailableException(ModelMissingMessage);
                 _factory = WhisperFactory.FromPath(path);
             }
 
@@ -70,33 +71,5 @@ internal sealed class WhisperSpeechToTextProvider(
         {
             _loadLock.Release();
         }
-    }
-
-    private async Task<string> EnsureModelAsync(CancellationToken cancellationToken)
-    {
-        var modelName = transcriptionOptions.Value.Providers.Whisper.Model;
-        var directory = storageOptions.Value.ResolveModelsDirectory();
-        var path = Path.Combine(directory, modelName);
-        if (File.Exists(path))
-        {
-            return path;
-        }
-
-        if (!WhisperModelCatalog.TryGetType(modelName, out var ggmlType))
-        {
-            throw new TranscriptionUnavailableException(
-                $"Whisper model '{modelName}' isn't in the models folder ({directory}) and can't be downloaded automatically.");
-        }
-
-        Directory.CreateDirectory(directory);
-        var temporary = path + ".download";
-        await using (var source = await WhisperGgmlDownloader.Default.GetGgmlModelAsync(ggmlType, cancellationToken: cancellationToken))
-        await using (var target = File.Create(temporary))
-        {
-            await source.CopyToAsync(target, cancellationToken);
-        }
-
-        File.Move(temporary, path, overwrite: true);
-        return path;
     }
 }

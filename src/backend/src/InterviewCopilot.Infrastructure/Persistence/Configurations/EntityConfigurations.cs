@@ -75,3 +75,31 @@ internal sealed class PracticeAttemptConfiguration : IEntityTypeConfiguration<Pr
         builder.HasOne<Session>().WithMany().HasForeignKey(p => p.SessionId).OnDelete(DeleteBehavior.Cascade);
     }
 }
+
+internal sealed class UserPreferencesConfiguration : IEntityTypeConfiguration<UserPreferences>
+{
+    public void Configure(EntityTypeBuilder<UserPreferences> builder)
+    {
+        builder.HasKey(p => p.UserId);
+        builder.Property(p => p.UserId).ValueGeneratedNever();
+        builder.Property(p => p.LlmModel).HasMaxLength(UserPreferences.MaxModelLength);
+        builder.Property(p => p.LlmProvider).HasMaxLength(UserPreferences.MaxProviderLength);
+        builder.Property(p => p.SpeechToTextProvider).HasMaxLength(UserPreferences.MaxProviderLength);
+        builder.HasOne<UserAccount>().WithOne().HasForeignKey<UserPreferences>(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
+    }
+}
+
+internal sealed class PairedBrowserConfiguration : IEntityTypeConfiguration<PairedBrowser>
+{
+    public void Configure(EntityTypeBuilder<PairedBrowser> builder)
+    {
+        builder.HasKey(b => b.Id);
+        builder.Property(b => b.Id).ValueGeneratedNever();
+        builder.Property(b => b.Name).HasMaxLength(PairedBrowser.MaxNameLength).IsRequired();
+        builder.Property(b => b.TokenHash).HasMaxLength(64).IsRequired();
+        builder.HasIndex(b => b.TokenHash).IsUnique();
+        builder.HasIndex(b => b.UserId);
+        builder.Ignore(b => b.IsRevoked);
+        builder.HasOne<UserAccount>().WithMany().HasForeignKey(b => b.UserId).OnDelete(DeleteBehavior.Cascade);
+    }
+}

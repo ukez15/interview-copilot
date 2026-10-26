@@ -20,6 +20,26 @@ Full brief: `docs/atlas-gotcha/interview-copilot.md`. Project constitution: `GOT
 
 ---
 
+## How to work here (read first)
+
+This file is self-contained: it doesn't rely on anything outside the repo, so local and cloud sessions
+follow the same rules.
+
+- **ATLAS + GOTCHA, scaled to the task.** Say which tier you're using in one line:
+  - **Full** (new feature, multi-file change, schemas, auth, infra, CI/CD): write an ATLAS + GOTCHA brief
+    in `docs/atlas-gotcha/<feature>.md`, **show it to the owner and wait for an explicit OK before
+    building**, then build and add a "What we adjusted" review.
+  - **Light** (a small fix or single-file change): answer the five ATLAS questions in a few lines, then proceed.
+  - **None** (questions, research): just answer.
+- **Never invent design decisions**, such as names, routes, ports, schemas, UI wording or tech choices.
+  Ask the owner, with a recommendation.
+- Working agreements, the wave workflow, cloud-session notes, Windows gotchas and current project
+  state: **[`docs/ai-workflow.md`](docs/ai-workflow.md)**.
+- **Cloud sessions:** run `bash scripts/cloud-setup.sh` first. They may push a feature branch and open
+  a PR. The owner merges and tags.
+
+---
+
 ## Operating modes
 
 | Mode | Status | What it is |
@@ -136,8 +156,9 @@ Auth, Sessions, Documents, Audio, Transcription, Copilot, Practice, Transcripts,
 
 ## Guardrails
 
-- Always use **pnpm** — never npm
-- **NEVER git push** without explicit user authorization
+- Always use **pnpm** — never npm, npx or yarn
+- **NEVER git push** without explicit user authorization. In cloud sessions the push hook allows only
+  `git push [-u] origin <feature-branch>`, never main or tags.
 - **NEVER commit as Claude** — no AI attribution in commits
 - **NEVER --no-verify** — fix the hook, don't skip it
 - **NEVER write secrets** to source — BYOK keys go to the OS keychain via the desktop app only
@@ -146,7 +167,9 @@ Auth, Sessions, Documents, Audio, Transcription, Copilot, Practice, Transcripts,
 - **NEVER enable a paid provider by default** (zero-cost principle)
 - **NEVER hand-edit AI-generated code that failed an invariant** — reject and regenerate
 - **Always ask before any design decision** — never assume
-- **Always ask before any destructive action**
+- **Always ask before any destructive action**: `rm -rf`, deleting files or branches, destructive
+  or mutating cloud CLI commands
+- **Tests:** coverage at least 75% per package (target 80%), enforced in CI
 
 ---
 

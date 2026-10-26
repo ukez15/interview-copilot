@@ -2,7 +2,14 @@
   <!-- Central package management. Exact versions only; review each upgrade individually. -->
   <PropertyGroup>
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
+    <!-- Lets the Security pins below override vulnerable transitive versions. -->
+    <CentralPackageTransitivePinningEnabled>true</CentralPackageTransitivePinningEnabled>
   </PropertyGroup>
+
+  <ItemGroup Label="Security pins (transitive)">
+    <!-- GHSA-qhrr-8q5h-9q3h: < 2.5.303 vulnerable. Pulled in by Aspire.Hosting (dev-only AppHost). -->
+    <PackageVersion Include="MessagePack" Version="2.5.307" />
+  </ItemGroup>
 
   <ItemGroup Label="Analyzers / build">
     <PackageVersion Include="SonarAnalyzer.CSharp" Version="10.35.0.4138" />
@@ -16,6 +23,10 @@
     <PackageVersion Include="Whisper.net" Version="1.9.1" />
     <PackageVersion Include="Whisper.net.Runtime" Version="1.9.1" />
     <PackageVersion Include="QuestPDF" Version="2026.9.1" />
+    <PackageVersion Include="PdfPig" Version="0.1.16" />
+    <PackageVersion Include="DocumentFormat.OpenXml" Version="3.5.1" />
+    <PackageVersion Include="AngleSharp" Version="1.8.6" />
+    <PackageVersion Include="SmartReader" Version="0.11.1" />
   </ItemGroup>
 
   <ItemGroup Label="Api / ServiceDefaults">

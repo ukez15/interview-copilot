@@ -38,6 +38,7 @@ appsettings.Development.json
 node_modules/
 dist/
 dist-electron/
+backend-publish/
 release/
 out/
 .pnpm-store/

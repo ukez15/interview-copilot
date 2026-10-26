@@ -53,4 +53,5 @@ export const sampleSession: Session = {
   startedAt: null,
   endedAt: null,
   documents: [{ id: 'd1', fileName: 'resume.txt', characterCount: 10, createdAt: '2026-10-15T09:00:00Z' }],
+  autoAnswer: true,
 };

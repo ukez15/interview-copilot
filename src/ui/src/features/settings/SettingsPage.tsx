@@ -2,12 +2,19 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
-import { Input, Label } from '@/components/ui/form';
+import { Label } from '@/components/ui/form';
 import { Slider } from '@/components/ui/slider';
+import { MicrophonePicker } from '@/features/audio/MicrophonePicker';
+import { AiModelCard } from '@/features/settings/AiModelCard';
+import { SignOutCard } from '@/features/settings/SignOutCard';
+import { PairedBrowsersCard } from './PairedBrowsersCard';
+import { PrivacyCard } from './PrivacyCard';
 import { useApp } from '@/lib/app-context';
 import { clampOpacity, OVERLAY_OPACITY } from '@/lib/utils';
 import { DEFAULT_SETTINGS, type DesktopSettings } from '@/platform';
 import type { ProviderInfo, Providers } from '@/types/api';
+import { SpeechModelCard } from './SpeechModelCard';
+import { SpeechToTextCard } from './SpeechToTextCard';
 
 export function SettingsPage() {
   const { api, platform } = useApp();
@@ -56,6 +63,17 @@ export function SettingsPage() {
       </Card>
 
       <Card className="grid gap-3">
+        <CardTitle>Audio</CardTitle>
+        <MicrophonePicker
+          value={settings.micDeviceId}
+          onChange={(micDeviceId) => void platform.setSettings({ micDeviceId }).then(setSettings)}
+        />
+        <CardDescription>
+          The other side of the call is captured from your computer's sound output (Windows). Applies the next time a session starts.
+        </CardDescription>
+      </Card>
+
+      <Card className="grid gap-3">
         <CardTitle>Meetings</CardTitle>
         <label className="flex items-start gap-3 text-sm">
           <input type="checkbox" checked={settings.autoStartOnMeeting} onChange={(e) => void toggleAutoStart(e.target.checked)} />
@@ -67,6 +85,12 @@ export function SettingsPage() {
           </span>
         </label>
       </Card>
+
+      <PairedBrowsersCard />
+      <PrivacyCard />
+      <SpeechModelCard />
+      {providers && <SpeechToTextCard providers={providers.speechToText} />}
+      <AiModelCard />
 
       <Card className="grid gap-4">
         <CardTitle>Providers</CardTitle>
@@ -82,10 +106,13 @@ export function SettingsPage() {
           </>
         )}
       </Card>
+
+      <SignOutCard />
     </main>
   );
 }
 
+/** Which providers this backend offers. Keys are entered in the Speech-to-text and AI model cards. */
 function ProviderList({ title, providers }: { title: string; providers: ProviderInfo[] }) {
   return (
     <section className="grid gap-2">
@@ -95,36 +122,8 @@ function ProviderList({ title, providers }: { title: string; providers: Provider
           <div className="text-sm">
             {provider.displayName} {provider.isDefault && <span className="text-muted-foreground">(default)</span>}
           </div>
-          {provider.requiresApiKey && <ApiKeyField provider={provider.name} />}
         </div>
       ))}
     </section>
-  );
-}
-
-/** BYOK: the key goes to the OS keychain through the desktop app, never to a file or the backend DB. */
-function ApiKeyField({ provider }: { provider: string }) {
-  const { platform } = useApp();
-  const [key, setKey] = useState('');
-  const [status, setStatus] = useState<string | null>(null);
-
-  async function save() {
-    try {
-      await platform.setApiKey(provider, key);
-      setKey('');
-      setStatus('Saved to your OS keychain.');
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : 'Could not save the key.');
-    }
-  }
-
-  return (
-    <div className="flex gap-2">
-      <Input type="password" aria-label={`${provider} API key`} placeholder="Your API key" value={key} onChange={(e) => setKey(e.target.value)} />
-      <Button size="sm" disabled={!key} onClick={() => void save()}>
-        Save
-      </Button>
-      {status && <span className="self-center text-xs text-muted-foreground">{status}</span>}
-    </div>
   );
 }

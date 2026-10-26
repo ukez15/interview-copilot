@@ -15,6 +15,8 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Opening a Radix dropdown per field makes form tests slower than the 5s default.
+    testTimeout: 15000,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.{ts,tsx}'],

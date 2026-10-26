@@ -12,6 +12,41 @@ export function packagedBackendPath(resourcesPath: string, platform: NodeJS.Plat
   return path.join(resourcesPath, 'backend', executable);
 }
 
+export const PROBE_TIMEOUT_MS = 2_000;
+
+/** One /health check; anything but an OK answer within the timeout counts as "not running". */
+export async function isHealthy(
+  fetchImpl: (url: string, init?: { signal?: AbortSignal }) => Promise<{ ok: boolean }> = (url, init) => fetch(url, init),
+): Promise<boolean> {
+  try {
+    return (await fetchImpl(`${BACKEND_URL}/health`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) })).ok;
+  } catch {
+    return false;
+  }
+}
+
+export type BackendSource = 'reused' | 'spawned' | 'external';
+
+/**
+ * #36: a packaged app starts its bundled backend unless one already answers on the port (a second copy
+ * of the app, or a dev backend). A reused backend isn't ours, so the app must not stop it on quit.
+ * In development the backend always runs separately (`pnpm dev:backend`).
+ */
+export async function ensureBackend(deps: {
+  packaged: boolean;
+  probe: () => Promise<boolean>;
+  spawnBackend: () => void;
+}): Promise<BackendSource> {
+  if (!deps.packaged) {
+    return 'external';
+  }
+  if (await deps.probe()) {
+    return 'reused';
+  }
+  deps.spawnBackend();
+  return 'spawned';
+}
+
 /** Polls /health until the backend answers or the timeout passes. */
 export async function waitForHealthy(
   fetchImpl: (url: string) => Promise<{ ok: boolean }> = (url) => fetch(url),

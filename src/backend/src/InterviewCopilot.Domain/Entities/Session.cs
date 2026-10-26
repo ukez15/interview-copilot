@@ -40,6 +40,9 @@ public sealed class Session
 
     public DateTimeOffset? EndedAt { get; private set; }
 
+    /// <summary>Answer detected interviewer questions automatically (#22). On by default; the user can pause it.</summary>
+    public bool AutoAnswer { get; private set; }
+
     public IReadOnlyList<SessionDocument> Documents => _documents;
 
     public static Session Create(Guid ownerId, string title, SessionMode mode, DateTimeOffset now)
@@ -53,6 +56,7 @@ public sealed class Session
             CreatedAt = now,
             AnswerLength = AnswerLength.Balanced,
             Framework = AnswerFramework.None,
+            AutoAnswer = true,
         };
         session.Rename(title);
         return session;
@@ -114,6 +118,9 @@ public sealed class Session
             throw new DomainException("That document isn't attached to this session.");
         }
     }
+
+    /// <summary>Pauses or resumes automatic answers. Allowed in any state; it only matters while Live.</summary>
+    public void SetAutoAnswer(bool enabled) => AutoAnswer = enabled;
 
     public void Start(DateTimeOffset now)
     {
