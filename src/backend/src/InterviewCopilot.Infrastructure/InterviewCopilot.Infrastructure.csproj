@@ -16,6 +16,10 @@
     <PackageReference Include="Whisper.net" />
     <PackageReference Include="Whisper.net.Runtime" />
     <PackageReference Include="QuestPDF" />
+    <PackageReference Include="PdfPig" />
+    <PackageReference Include="DocumentFormat.OpenXml" />
+    <PackageReference Include="AngleSharp" />
+    <PackageReference Include="SmartReader" />
   </ItemGroup>
 
   <ItemGroup>

@@ -30,6 +30,29 @@ export function createMainWindow(): BrowserWindow {
   return window;
 }
 
+/**
+ * Hidden window that captures audio (docs/atlas-gotcha/audio-capture-windows.md). Never shown; background
+ * throttling is off so audio keeps flowing while the user is in the meeting app.
+ */
+export function createCaptureWindow(): BrowserWindow {
+  const window = new BrowserWindow({
+    show: false,
+    width: 1,
+    height: 1,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'capture-preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false,
+      autoplayPolicy: 'no-user-gesture-required',
+    },
+  });
+  void window.loadURL(`${APP_PROTOCOL}://${APP_HOST}/capture/capture.html`);
+  return window;
+}
+
 /** FR-17: semi-transparent, always-on-top answer overlay. */
 export function createOverlayWindow(sessionId: string, opacity: number): BrowserWindow {
   const { workArea } = screen.getPrimaryDisplay();

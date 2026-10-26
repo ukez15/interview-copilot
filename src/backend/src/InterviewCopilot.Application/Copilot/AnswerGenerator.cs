@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using InterviewCopilot.Application.Common.Exceptions;
 using InterviewCopilot.Application.Common.Interfaces;
+using InterviewCopilot.Application.Events;
 using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
@@ -24,9 +25,12 @@ public sealed class AnswerGenerator(
     ISessionRepository sessions,
     ITranscriptRepository transcripts,
     IUnitOfWork unitOfWork,
-    ILlmProvider llm,
+    ILlmProviderResolver llmProviders,
+    ISessionKeyStore sessionKeys,
     IOptions<LlmOptions> llmOptions,
-    TimeProvider clock)
+    TimeProvider clock,
+    ISessionEventPublisher events,
+    IUserPreferencesRepository preferences)
 {
     public const int RecentSegmentCount = 12;
 
@@ -53,14 +57,22 @@ public sealed class AnswerGenerator(
             request.PreviousAnswer);
 
         var options = llmOptions.Value;
-        var llmRequest = new LlmRequest(options.Model, AnswerPromptBuilder.Build(input), options.Temperature, request.ApiKey);
+        var owner = await preferences.GetAsync(session.OwnerId, cancellationToken);
+        var providerName = string.IsNullOrWhiteSpace(owner?.LlmProvider) ? options.Provider : owner.LlmProvider;
+        var model = string.IsNullOrWhiteSpace(owner?.LlmModel) ? options.Model : owner.LlmModel;
+        var llm = llmProviders.Resolve(providerName);
+
+        // A key handed to the live session wins; a per-request key still works for manual answers (#30).
+        var apiKey = sessionKeys.TryGet(session.Id, providerName) ?? request.ApiKey;
+        var llmRequest = new LlmRequest(model, AnswerPromptBuilder.Build(input), options.Temperature, apiKey);
         var version = request.PreviousVersion + 1;
 
         return (new AnswerHeader(questionType, version),
-            StreamAndPersistAsync(session.Id, request, questionType, version, llmRequest, cancellationToken));
+            StreamAndPersistAsync(llm, session.Id, request, questionType, version, llmRequest, cancellationToken));
     }
 
     private async IAsyncEnumerable<string> StreamAndPersistAsync(
+        ILlmProvider llm,
         Guid sessionId,
         AnswerRequest request,
         QuestionType questionType,
@@ -72,17 +84,20 @@ public sealed class AnswerGenerator(
         await foreach (var token in llm.StreamAsync(llmRequest, cancellationToken))
         {
             answer.Append(token);
+            events.Publish(sessionId, SessionEventTypes.AnswerDelta, new { token, version, questionType });
             yield return token;
         }
 
-        transcripts.AddAnswer(SuggestedAnswer.Create(
+        var suggested = SuggestedAnswer.Create(
             sessionId,
             request.Question,
             questionType,
             answer.ToString(),
             version,
             request.Modifier,
-            clock.GetUtcNow()));
+            clock.GetUtcNow());
+        transcripts.AddAnswer(suggested);
         await unitOfWork.SaveChangesAsync(cancellationToken);
+        events.Publish(sessionId, SessionEventTypes.AnswerDone, new { version, questionType, answerId = suggested.Id });
     }
 }

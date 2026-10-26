@@ -10,7 +10,7 @@ machine, and GitHub Actions in a clean environment.
 |---|-----------|---------------------------|-----------------------|----|
 | 1 | **Functional** | `enforce-invariants.sh` (eslint/jq/yamllint per file) | `dotnet format`, `pnpm lint`, `pnpm typecheck` | `ci.yml`: build with `TreatWarningsAsErrors`, Roslyn + Sonar + Roslynator analyzers, eslint, tsc |
 | 2 | **Tested** | `require-tests.sh` warns when production code has no sibling test | `dotnet test`, `pnpm test` (pre-push) | `ci.yml`: backend coverage gate ≥75% lines; vitest thresholds ≥75% per package |
-| 3 | **Secure** | `block-secrets.sh` | gitleaks | `governance.yml`: gitleaks, CodeQL (C# + TS), dependency review (high CVEs, copyleft licences); Dependabot weekly; manual `/security-review` before each release |
+| 3 | **Secure** | `block-secrets.sh` | gitleaks | `governance.yml`: gitleaks, CodeQL (C# + TS), dependency review (high CVEs, copyleft licences), known vulnerabilities in shipped deps (`pnpm audit --prod`, `dotnet list package --vulnerable`; high/critical fail, dev deps warn, also weekly); Dependabot weekly; manual `/security-review` before each release |
 | 4 | **Scalable** | — | — | Review checklist: async I/O, no unbounded queries, streaming answers, bounded audio buffers (ATLAS stress-tests) |
 | 5 | **Performant** | — | — | NFR-05 latency budget (2–5 s to first token) measured manually per release on reference hardware; pipeline overhead covered by tests |
 | 6 | **Observable** | — | — | OpenTelemetry logs/metrics/traces in `ServiceDefaults`; no export endpoint configured (by choice), so nothing leaves the machine. Set `OTEL_EXPORTER_OTLP_ENDPOINT` to enable |

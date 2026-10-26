@@ -1,7 +1,10 @@
 using InterviewCopilot.Application.Common.Exceptions;
 using InterviewCopilot.Application.Common.Interfaces;
+using InterviewCopilot.Application.Events;
+using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
+using InterviewCopilot.Domain.Exceptions;
 
 namespace InterviewCopilot.Application.Sessions;
 
@@ -12,7 +15,8 @@ public sealed record CreateSessionCommand(
     AnswerLength AnswerLength,
     AnswerFramework Framework,
     QuestionType? PinnedQuestionType,
-    string? SessionPrompt);
+    string? SessionPrompt,
+    Guid? CopyFromSessionId = null);
 
 public sealed record UpdateSessionSettingsCommand(
     AnswerLength AnswerLength,
@@ -34,7 +38,8 @@ public sealed record SessionDto(
     DateTimeOffset CreatedAt,
     DateTimeOffset? StartedAt,
     DateTimeOffset? EndedAt,
-    IReadOnlyList<DocumentSummaryDto> Documents)
+    IReadOnlyList<DocumentSummaryDto> Documents,
+    bool AutoAnswer)
 {
     public static SessionDto From(Session session)
     {
@@ -51,18 +56,44 @@ public sealed record SessionDto(
             session.CreatedAt,
             session.StartedAt,
             session.EndedAt,
-            [.. session.Documents.Select(d => new DocumentSummaryDto(d.Id, d.FileName, d.Content.Length, d.CreatedAt))]);
+            [.. session.Documents.Select(d => new DocumentSummaryDto(d.Id, d.FileName, d.Content.Length, d.CreatedAt))],
+            session.AutoAnswer);
     }
 }
 
 /// <summary>Session setup and lifecycle (FR-01..FR-06).</summary>
-public sealed class SessionService(ISessionRepository sessions, IUnitOfWork unitOfWork, TimeProvider clock)
+public sealed class SessionService(
+    ISessionRepository sessions,
+    IUnitOfWork unitOfWork,
+    TimeProvider clock,
+    ISessionEventPublisher? events = null,
+    ISessionKeyStore? sessionKeys = null)
 {
+    public const int MaxApiKeyLength = 512;
+
     public async Task<SessionDto> CreateAsync(CreateSessionCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
-        var session = Session.Create(command.OwnerId, command.Title, command.Mode, clock.GetUtcNow());
-        session.ConfigureAnswers(command.AnswerLength, command.Framework, command.PinnedQuestionType, command.SessionPrompt);
+        var now = clock.GetUtcNow();
+        Session session;
+        if (command.CopyFromSessionId is { } sourceId)
+        {
+            // #16: a copy takes everything but the title from the source, which must be the caller's own.
+            var source = await LoadOwnedAsync(command.OwnerId, sourceId, cancellationToken);
+            session = Session.Create(command.OwnerId, command.Title, source.Mode, now);
+            session.ConfigureAnswers(source.AnswerLength, source.Framework, source.PinnedQuestionType, source.SessionPrompt);
+            session.SetAutoAnswer(source.AutoAnswer);
+            foreach (var document in source.Documents)
+            {
+                session.AttachDocument(document.FileName, document.Content, now);
+            }
+        }
+        else
+        {
+            session = Session.Create(command.OwnerId, command.Title, command.Mode, now);
+            session.ConfigureAnswers(command.AnswerLength, command.Framework, command.PinnedQuestionType, command.SessionPrompt);
+        }
+
         sessions.Add(session);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return SessionDto.From(session);
@@ -103,6 +134,43 @@ public sealed class SessionService(ISessionRepository sessions, IUnitOfWork unit
         var session = await LoadOwnedAsync(ownerId, sessionId, cancellationToken);
         session.End(clock.GetUtcNow());
         await unitOfWork.SaveChangesAsync(cancellationToken);
+        sessionKeys?.Clear(session.Id);
+        return SessionDto.From(session);
+    }
+
+    /// <summary>
+    /// Hands a BYOK key to a live session so backend-side work (auto-answer, Deepgram) can use it. Kept in
+    /// memory only and cleared when the session ends (wave-3 owner decision).
+    /// </summary>
+    public async Task SetSessionKeyAsync(Guid ownerId, Guid sessionId, string provider, string key, CancellationToken cancellationToken)
+    {
+        if (!ProviderNames.KeyedProviders.Contains(provider))
+        {
+            throw new DomainException("That provider doesn't take an API key.");
+        }
+
+        if (string.IsNullOrWhiteSpace(key) || key.Length > MaxApiKeyLength)
+        {
+            throw new DomainException($"API keys must be 1 to {MaxApiKeyLength} characters.");
+        }
+
+        var session = await LoadOwnedAsync(ownerId, sessionId, cancellationToken);
+        if (session.Status != SessionStatus.Live)
+        {
+            throw new ConflictException("Keys can only be handed to a live session.");
+        }
+
+        (sessionKeys ?? throw new InvalidOperationException("No session key store is registered."))
+            .Store(session.Id, provider, key.Trim());
+    }
+
+    /// <summary>Pauses or resumes automatic answers and tells everyone watching the session (#22).</summary>
+    public async Task<SessionDto> SetAutoAnswerAsync(Guid ownerId, Guid sessionId, bool enabled, CancellationToken cancellationToken)
+    {
+        var session = await LoadOwnedAsync(ownerId, sessionId, cancellationToken);
+        session.SetAutoAnswer(enabled);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        events?.Publish(session.Id, SessionEventTypes.AutoAnswerState, new { enabled });
         return SessionDto.From(session);
     }
 

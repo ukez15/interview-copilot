@@ -3,8 +3,7 @@ using InterviewCopilot.Application.Documents;
 namespace InterviewCopilot.Infrastructure.Documents;
 
 /// <summary>
-/// Plain-text documents (.txt, .md). PDF and DOCX extraction need a library choice from the owner
-/// and are tracked as their own issue.
+/// Plain-text documents (.txt, .md). PDF and DOCX have their own extractors.
 /// </summary>
 internal sealed class PlainTextExtractor : IDocumentTextExtractor
 {

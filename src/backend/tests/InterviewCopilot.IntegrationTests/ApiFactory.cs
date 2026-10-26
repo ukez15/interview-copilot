@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
+using InterviewCopilot.Application.Documents;
 using InterviewCopilot.Application.Providers;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -27,6 +28,12 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public ScriptedLlm Llm { get; } = new();
 
+    public ScriptedStt Stt { get; } = new();
+
+    public FakeWhisperModel WhisperModel { get; } = new();
+
+    public FakeWebPageFetcher Fetcher { get; } = new();
+
     public object Credentials(string username, string? secret = null) =>
         new Dictionary<string, string> { ["username"] = username, ["password"] = secret ?? TestSecret };
 
@@ -49,6 +56,12 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<ILlmProvider>();
             services.AddSingleton<ILlmProvider>(Llm);
+            services.RemoveAll<ISpeechToTextProvider>();
+            services.AddSingleton<ISpeechToTextProvider>(Stt);
+            services.RemoveAll<IWhisperModelStatus>();
+            services.AddSingleton<IWhisperModelStatus>(WhisperModel);
+            services.RemoveAll<IWebPageFetcher>();
+            services.AddSingleton<IWebPageFetcher>(Fetcher);
         });
     }
 
@@ -70,7 +83,7 @@ public sealed class ScriptedLlm : ILlmProvider
 
     public bool Fail { get; set; }
 
-    public string Name => "scripted";
+    public string Name => ProviderNames.Ollama; // stands in for the configured default provider
 
     public async IAsyncEnumerable<string> StreamAsync(LlmRequest request, [EnumeratorCancellation] CancellationToken cancellationToken)
     {
@@ -84,5 +97,61 @@ public sealed class ScriptedLlm : ILlmProvider
             await Task.Yield();
             yield return token;
         }
+    }
+}
+
+/// <summary>Stands in for the Whisper model manager so no test downloads anything.</summary>
+public sealed class FakeWhisperModel : IWhisperModelStatus
+{
+    public WhisperModelState State { get; set; } = WhisperModelState.Missing;
+
+    public WhisperModelStatus GetStatus() => new(State, "ggml-small.en.bin", 5, 10, null);
+
+    public WhisperDownloadStart StartDownload()
+    {
+        switch (State)
+        {
+            case WhisperModelState.Downloading:
+                return WhisperDownloadStart.AlreadyDownloading;
+            case WhisperModelState.Ready:
+                return WhisperDownloadStart.AlreadyReady;
+            default:
+                State = WhisperModelState.Downloading;
+                return WhisperDownloadStart.Started;
+        }
+    }
+}
+
+/// <summary>Stands in for Whisper: returns a scripted transcript (or fails) without loading a model.</summary>
+public sealed class ScriptedStt : ISpeechToTextProvider
+{
+    public string Text { get; set; } = "Tell me about a time you led a team.";
+
+    public bool Fail { get; set; }
+
+    public string Name => ProviderNames.Ollama; // stands in for the configured default provider
+
+    public Task<TranscriptionResult> TranscribeAsync(AudioChunk chunk, string? apiKey, CancellationToken cancellationToken)
+    {
+        if (Fail)
+        {
+            throw new InvalidOperationException("Speech model not available.");
+        }
+
+        return Task.FromResult(new TranscriptionResult(Text));
+    }
+}
+
+/// <summary>Stands in for the real fetcher so no test touches the network.</summary>
+public sealed class FakeWebPageFetcher : IWebPageFetcher
+{
+    public Func<Uri, FetchedPage> Respond { get; set; } = url => new FetchedPage(url, "<html><body></body></html>");
+
+    public List<Uri> Requested { get; } = [];
+
+    public Task<FetchedPage> FetchAsync(Uri url, CancellationToken cancellationToken)
+    {
+        Requested.Add(url);
+        return Task.FromResult(Respond(url));
     }
 }

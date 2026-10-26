@@ -13,16 +13,25 @@ export type AnswerEvent =
   | { type: 'error'; message: string }
   | { type: 'done' };
 
+const CLAIM_PATH = '/api/pairing/claim';
+
 type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 export class BackendError extends Error {}
 
-export async function signIn(username: string, password: string, fetchImpl: FetchLike = fetch): Promise<string> {
-  const response = await call(fetchImpl, '/api/auth/sign-in', null, {
+/** The backend no longer accepts the pairing token (revoked or unknown): the caller drops it and asks to pair again. */
+export class UnauthorizedError extends BackendError {}
+
+/** Header the backend reads the pairing token from (#33). */
+export const PAIRING_HEADER = 'X-Pairing-Token';
+
+/** Trades a one-time code from the desktop app for a pairing token. */
+export async function claimPairing(code: string, name: string, fetchImpl: FetchLike = fetch): Promise<string> {
+  const response = await call(fetchImpl, CLAIM_PATH, null, {
     method: 'POST',
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ code, name }),
   });
-  return ((await response.json()) as { accessToken: string }).accessToken;
+  return ((await response.json()) as { token: string }).token;
 }
 
 export async function liveSessions(token: string, fetchImpl: FetchLike = fetch): Promise<SessionSummary[]> {
@@ -97,7 +106,7 @@ export function toAnswerEvent(block: string): AnswerEvent | null {
 async function call(fetchImpl: FetchLike, path: string, token: string | null, init: RequestInit = {}): Promise<Response> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) {
-    headers.Authorization = `Bearer ${token}`;
+    headers[PAIRING_HEADER] = token;
   }
   let response: Response;
   try {
@@ -106,7 +115,13 @@ async function call(fetchImpl: FetchLike, path: string, token: string | null, in
     throw new BackendError('Desktop app not running. Open InterviewCopilot first.');
   }
   if (response.status === 401) {
-    throw new BackendError('Sign in again from the extension popup.');
+    throw new UnauthorizedError('Pair again with a new code from the desktop app.');
+  }
+  if (response.status === 400 && path === CLAIM_PATH) {
+    throw new BackendError('That pairing code is invalid or expired.');
+  }
+  if (response.status === 429) {
+    throw new BackendError('Too many tries. Wait a minute, then try again.');
   }
   if (!response.ok) {
     throw new BackendError(`Request failed (${response.status}).`);

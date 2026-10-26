@@ -28,11 +28,23 @@ export type Speaker = 'Interviewer' | 'Candidate';
 /** FR-02 */
 export const MAX_DOCUMENTS_PER_SESSION = 10;
 
+/** Mirrors SessionLimits.MaxTitleLength in the backend. */
+export const MAX_SESSION_TITLE_LENGTH = 200;
+
 export interface DocumentSummary {
   id: string;
   fileName: string;
   characterCount: number;
   createdAt: string;
+}
+
+export type JobPostingSource = 'JsonLd' | 'Readable';
+
+/** A job description read from a link; nothing is stored until the user saves it as a document. */
+export interface JobPostingPreview {
+  suggestedName: string;
+  text: string;
+  source: JobPostingSource;
 }
 
 export interface Session {
@@ -48,6 +60,8 @@ export interface Session {
   startedAt: string | null;
   endedAt: string | null;
   documents: DocumentSummary[];
+  /** #22: answer detected questions automatically (on by default, pausable). */
+  autoAnswer: boolean;
 }
 
 export interface CreateSessionInput {
@@ -57,6 +71,51 @@ export interface CreateSessionInput {
   framework: AnswerFramework;
   pinnedQuestionType: QuestionType | null;
   sessionPrompt: string;
+  /** #16: copy mode, answer settings and documents from this session (the other fields except title are ignored). */
+  copyFromSessionId?: string;
+}
+
+/** PUT /api/sessions/{id}/settings (#10). */
+export interface SessionSettingsInput {
+  answerLength: AnswerLength;
+  framework: AnswerFramework;
+  pinnedQuestionType: QuestionType | null;
+  sessionPrompt: string;
+}
+
+/** GET /api/sessions/{id}/transcript (#28). */
+export interface TranscriptEntry {
+  atMs: number;
+  speaker: Speaker;
+  text: string;
+}
+
+export interface TranscriptAnswer {
+  createdAt: string;
+  question: string;
+  questionType: QuestionType;
+  version: number;
+  text: string;
+}
+
+/** A scored mock-interview answer (#26). */
+export interface PracticeAttempt {
+  id: string;
+  question: string;
+  answerText: string;
+  score: number;
+  feedback: string;
+  createdAt: string;
+}
+
+export interface Transcript {
+  sessionId: string;
+  title: string;
+  mode: SessionMode;
+  createdAt: string;
+  entries: TranscriptEntry[];
+  answers: TranscriptAnswer[];
+  attempts: PracticeAttempt[];
 }
 
 export interface ProviderInfo {
@@ -67,9 +126,49 @@ export interface ProviderInfo {
   isDefault: boolean;
 }
 
+/** Where the backend keeps its data on this computer. */
+export interface StorageInfo {
+  dataDirectory: string;
+}
+
 export interface Providers {
   speechToText: ProviderInfo[];
   llm: ProviderInfo[];
+}
+
+export type WhisperModelState = 'missing' | 'downloading' | 'ready' | 'failed';
+
+export interface WhisperModel {
+  state: WhisperModelState;
+  model: string;
+  bytesDownloaded: number;
+  totalBytes: number | null;
+  message: string | null;
+}
+
+export interface OllamaModel {
+  name: string;
+  sizeBytes: number;
+  modifiedAt: string;
+}
+
+/** A model a cloud provider offers to the user's key (#30). */
+export interface CloudModel {
+  id: string;
+  displayName: string;
+}
+
+export interface Preferences {
+  /** Chosen Ollama model; null means the backend's configured default. */
+  llmModel: string | null;
+  /** The backend's configured default (Llm:Model), shown as "Default (<name>)". */
+  defaultLlmModel: string;
+  /** Chosen chat provider (#30), e.g. "ollama" or "openai"; null means the configured default. */
+  llmProvider: string | null;
+  defaultLlmProvider: string;
+  /** Chosen speech-to-text provider (#20); null means the configured default. */
+  speechToTextProvider: string | null;
+  defaultSpeechToTextProvider: string;
 }
 
 export interface AnswerHeader {
@@ -87,3 +186,17 @@ export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   TellMeAboutYourself: 'Tell me about yourself',
   Experience: 'Experience',
 };
+
+/** A one-time code the extension enters to pair with this account (#33); valid for a few minutes. */
+export interface PairingCode {
+  code: string;
+  expiresAt: string;
+}
+
+/** A browser extension paired with this account; revoking it makes its token stop working. */
+export interface PairedBrowser {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}

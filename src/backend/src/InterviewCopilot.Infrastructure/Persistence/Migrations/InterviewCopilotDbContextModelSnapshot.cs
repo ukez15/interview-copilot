@@ -17,6 +17,43 @@ namespace InterviewCopilot.Infrastructure.Persistence.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.13");
 
+            modelBuilder.Entity("InterviewCopilot.Domain.Entities.PairedBrowser", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("LastUsedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("RevokedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("TokenHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TokenHash")
+                        .IsUnique();
+
+                    b.HasIndex("UserId");
+
+                    b.ToTable("PairedBrowsers");
+                });
+
             modelBuilder.Entity("InterviewCopilot.Domain.Entities.PracticeAttempt", b =>
                 {
                     b.Property<Guid>("Id")
@@ -56,6 +93,9 @@ namespace InterviewCopilot.Infrastructure.Persistence.Migrations
                         .HasColumnType("TEXT");
 
                     b.Property<int>("AnswerLength")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<bool>("AutoAnswer")
                         .HasColumnType("INTEGER");
 
                     b.Property<long>("CreatedAt")
@@ -215,6 +255,40 @@ namespace InterviewCopilot.Infrastructure.Persistence.Migrations
                     b.ToTable("UserAccounts");
                 });
 
+            modelBuilder.Entity("InterviewCopilot.Domain.Entities.UserPreferences", b =>
+                {
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LlmModel")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("LlmProvider")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SpeechToTextProvider")
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("UpdatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("UserId");
+
+                    b.ToTable("UserPreferences");
+                });
+
+            modelBuilder.Entity("InterviewCopilot.Domain.Entities.PairedBrowser", b =>
+                {
+                    b.HasOne("InterviewCopilot.Domain.Entities.UserAccount", null)
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("InterviewCopilot.Domain.Entities.PracticeAttempt", b =>
                 {
                     b.HasOne("InterviewCopilot.Domain.Entities.Session", null)
@@ -256,6 +330,15 @@ namespace InterviewCopilot.Infrastructure.Persistence.Migrations
                     b.HasOne("InterviewCopilot.Domain.Entities.Session", null)
                         .WithMany()
                         .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("InterviewCopilot.Domain.Entities.UserPreferences", b =>
+                {
+                    b.HasOne("InterviewCopilot.Domain.Entities.UserAccount", null)
+                        .WithOne()
+                        .HasForeignKey("InterviewCopilot.Domain.Entities.UserPreferences", "UserId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });

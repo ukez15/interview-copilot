@@ -3,9 +3,20 @@ import type {
   AnswerHeader,
   AnswerModifier,
   CreateSessionInput,
+  CloudModel,
   DocumentSummary,
+  JobPostingPreview,
+  OllamaModel,
+  PairedBrowser,
+  PairingCode,
+  Preferences,
   Providers,
   Session,
+  StorageInfo,
+  SessionSettingsInput,
+  PracticeAttempt,
+  Transcript,
+  WhisperModel,
 } from '@/types/api';
 
 export const DEFAULT_API_BASE_URL = 'http://127.0.0.1:5480';
@@ -38,6 +49,19 @@ export interface AskInput {
 
 type FetchLike = typeof fetch;
 
+export interface SignInTokens {
+  accessToken: string;
+  refreshToken: string;
+}
+
+/** How the client recovers from an expired access token (#8). */
+export interface AuthHandlers {
+  /** Returns a fresh access token, or null when the sign-in can't be renewed. */
+  refresh: () => Promise<string | null>;
+  /** Called when a 401 couldn't be recovered, so the app can show the sign-in page. */
+  signedOut: () => void;
+}
+
 /** Typed client for the InterviewCopilot backend. Same client serves Mode C with a different base URL. */
 export class ApiClient {
   constructor(
@@ -46,21 +70,28 @@ export class ApiClient {
     private token: string | null = null,
   ) {}
 
+  private handlers: AuthHandlers | null = null;
+  private refreshing: Promise<string | null> | null = null;
+
   setToken(token: string | null): void {
     this.token = token;
+  }
+
+  setAuthHandlers(handlers: AuthHandlers | null): void {
+    this.handlers = handlers;
   }
 
   async register(username: string, password: string): Promise<void> {
     await this.send('/api/auth/register', { method: 'POST', body: JSON.stringify({ username, password }) });
   }
 
-  async signIn(username: string, password: string): Promise<string> {
-    const result = await this.json<{ accessToken: string }>('/api/auth/sign-in', {
+  async signIn(username: string, password: string): Promise<SignInTokens> {
+    const result = await this.json<SignInTokens>('/api/auth/sign-in', {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     });
     this.token = result.accessToken;
-    return result.accessToken;
+    return { accessToken: result.accessToken, refreshToken: result.refreshToken };
   }
 
   listSessions(): Promise<Session[]> {
@@ -73,6 +104,39 @@ export class ApiClient {
 
   createSession(input: CreateSessionInput): Promise<Session> {
     return this.json('/api/sessions', { method: 'POST', body: JSON.stringify(input) });
+  }
+
+  updateSessionSettings(id: string, input: SessionSettingsInput): Promise<Session> {
+    return this.json(`/api/sessions/${id}/settings`, { method: 'PUT', body: JSON.stringify(input) });
+  }
+
+  /** #22: pause or resume automatic answers; the backend also announces it as `autoanswer.state`. */
+  setAutoAnswer(id: string, enabled: boolean): Promise<Session> {
+    return this.json(`/api/sessions/${id}/auto-answer`, { method: 'PUT', body: JSON.stringify({ enabled }) });
+  }
+
+  /** WebSocket URL of a session's events channel (same host as the API). The access token is added by the caller. */
+  eventsUrl(sessionId: string): string {
+    return `${this.baseUrl.replace(/^http/, 'ws')}/ws/sessions/${sessionId}/events`;
+  }
+
+  getTranscript(id: string): Promise<Transcript> {
+    return this.json(`/api/sessions/${id}/transcript`);
+  }
+
+  /** #26: asks the next mock-interview question and opens it for the candidate's spoken answer. */
+  async practiceNext(sessionId: string): Promise<string> {
+    const body = await this.json<{ question: string }>(`/api/sessions/${sessionId}/practice/next`, { method: 'POST' });
+    return body.question;
+  }
+
+  /** #26: scores the answer heard since the question was asked and saves the attempt. */
+  practiceFinish(sessionId: string): Promise<PracticeAttempt> {
+    return this.json(`/api/sessions/${sessionId}/practice/finish`, { method: 'POST' });
+  }
+
+  practiceAttempts(sessionId: string): Promise<PracticeAttempt[]> {
+    return this.json(`/api/sessions/${sessionId}/practice/attempts`);
   }
 
   startSession(id: string): Promise<Session> {
@@ -89,12 +153,83 @@ export class ApiClient {
     return this.json(`/api/sessions/${sessionId}/documents`, { method: 'POST', body: form });
   }
 
+  /** Reads a job description from a link without saving anything; save it with `uploadDocument`. */
+  previewJobPosting(sessionId: string, url: string): Promise<JobPostingPreview> {
+    return this.json(`/api/sessions/${sessionId}/documents/from-link/preview`, { method: 'POST', body: JSON.stringify({ url }) });
+  }
+
+  /** Same as `previewJobPosting` but with no session yet: used by the create-session form. */
+  previewJobPostingLink(url: string): Promise<JobPostingPreview> {
+    return this.json('/api/documents/from-link/preview', { method: 'POST', body: JSON.stringify({ url }) });
+  }
+
   async removeDocument(sessionId: string, documentId: string): Promise<void> {
     await this.send(`/api/sessions/${sessionId}/documents/${documentId}`, { method: 'DELETE' });
   }
 
   providers(): Promise<Providers> {
     return this.json('/api/providers');
+  }
+
+  getStorage(): Promise<StorageInfo> {
+    return this.json('/api/storage');
+  }
+
+  getWhisperModel(): Promise<WhisperModel> {
+    return this.json('/api/providers/whisper/model');
+  }
+
+  /** Starts the (user-initiated) speech model download; 409 means one is already running. */
+  downloadWhisperModel(): Promise<WhisperModel> {
+    return this.json('/api/providers/whisper/model/download', { method: 'POST' });
+  }
+
+  ollamaModels(): Promise<OllamaModel[]> {
+    return this.json('/api/providers/ollama/models');
+  }
+
+  /** Models a cloud provider offers to this key (#30). The key travels in a header and is never stored by the backend. */
+  cloudModels(provider: string, apiKey: string): Promise<CloudModel[]> {
+    return this.json(`/api/providers/${encodeURIComponent(provider)}/models`, { headers: { 'X-Llm-Api-Key': apiKey } });
+  }
+
+  getPreferences(): Promise<Preferences> {
+    return this.json('/api/preferences');
+  }
+
+  setLlmModel(llmModel: string | null): Promise<Preferences> {
+    return this.json('/api/preferences', { method: 'PUT', body: JSON.stringify({ llmModel }) });
+  }
+
+  /** Chooses the chat provider and its model together (#30); null means the configured default. */
+  setLlmChoice(provider: string | null, model: string | null): Promise<Preferences> {
+    return this.json('/api/preferences/llm', { method: 'PUT', body: JSON.stringify({ provider, model }) });
+  }
+
+  /** Chooses the speech-to-text provider (#20); null means the configured default. */
+  setSpeechToTextProvider(provider: string | null): Promise<Preferences> {
+    return this.json('/api/preferences/speech-to-text', { method: 'PUT', body: JSON.stringify({ provider }) });
+  }
+
+  /** Hands a BYOK key to a live session; the backend keeps it in memory only until the session ends. */
+  async setSessionKey(sessionId: string, provider: string, key: string): Promise<void> {
+    await this.send(`/api/sessions/${sessionId}/keys/${encodeURIComponent(provider)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ key }),
+    });
+  }
+
+  /** #33: a single-use code to type into the extension popup. */
+  createPairingCode(): Promise<PairingCode> {
+    return this.json('/api/pairing/codes', { method: 'POST' });
+  }
+
+  listPairedBrowsers(): Promise<PairedBrowser[]> {
+    return this.json('/api/pairing/browsers');
+  }
+
+  async revokePairedBrowser(id: string): Promise<void> {
+    await this.send(`/api/pairing/browsers/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
   transcriptPdfUrl(sessionId: string): string {
@@ -160,6 +295,43 @@ export class ApiClient {
   }
 
   private async send(path: string, init: RequestInit = {}): Promise<Response> {
+    const response = await this.attempt(path, init);
+    // A 401 that explains itself (e.g. "Anthropic rejected the API key.") is not an expired sign-in.
+    const recoverable =
+      response.status === 401 && this.handlers !== null && !path.startsWith('/api/auth/') && !(await hasProblemDetail(response));
+    if (!recoverable) {
+      return this.checked(response);
+    }
+
+    // One refresh, one retry; if either fails the user goes back to the sign-in page.
+    const token = await this.refreshOnce();
+    if (token) {
+      this.token = token;
+      const retry = await this.attempt(path, init);
+      if (retry.status !== 401) {
+        return this.checked(retry);
+      }
+    }
+    this.token = null;
+    this.handlers?.signedOut();
+    return this.checked(response);
+  }
+
+  private refreshOnce(): Promise<string | null> {
+    this.refreshing ??= (this.handlers?.refresh() ?? Promise.resolve(null))
+      .catch(() => null)
+      .finally(() => (this.refreshing = null));
+    return this.refreshing;
+  }
+
+  private async checked(response: Response): Promise<Response> {
+    if (!response.ok) {
+      throw new ApiError(response.status, await problemMessage(response));
+    }
+    return response;
+  }
+
+  private async attempt(path: string, init: RequestInit): Promise<Response> {
     const headers = new Headers(init.headers);
     if (init.body && !(init.body instanceof FormData)) {
       headers.set('Content-Type', 'application/json');
@@ -168,22 +340,25 @@ export class ApiClient {
       headers.set('Authorization', `Bearer ${this.token}`);
     }
 
-    let response: Response;
     try {
-      response = await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers });
+      return await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers });
     } catch {
       throw new ApiError(0, "Can't reach the InterviewCopilot backend. Is the desktop app running?");
     }
+  }
+}
 
-    if (!response.ok) {
-      throw new ApiError(response.status, await problemMessage(response));
-    }
-    return response;
+async function hasProblemDetail(response: Response): Promise<boolean> {
+  try {
+    const problem = (await response.clone().json()) as { detail?: unknown };
+    return typeof problem.detail === 'string' && problem.detail.length > 0;
+  } catch {
+    return false;
   }
 }
 
 async function problemMessage(response: Response): Promise<string> {
-  if (response.status === 401) {
+  if (response.status === 401 && !(await hasProblemDetail(response))) {
     return 'Please sign in again.';
   }
   try {
