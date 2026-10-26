@@ -22,12 +22,16 @@ internal static class SessionEndpoints
 {
     public static void MapSessionEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/api/sessions").WithTags("Sessions").RequireAuthorization();
+        var group = app.MapGroup("/api/sessions").WithTags("Sessions");
 
+        // A paired browser may list sessions (#33), so this one doesn't inherit the bearer-only default below.
         group.MapGet("/", (ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
-            sessions.ListAsync(user.UserId(), ct));
+                sessions.ListAsync(user.UserId(), ct))
+            .RequireAuthorization(Policies.ExtensionScope);
 
-        group.MapPost("/", async (CreateSessionRequest request, ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
+        var owner = group.MapGroup(string.Empty).RequireAuthorization();
+
+        owner.MapPost("/", async (CreateSessionRequest request, ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
         {
             var session = await sessions.CreateAsync(
                 new CreateSessionCommand(
@@ -42,30 +46,30 @@ internal static class SessionEndpoints
             return TypedResults.Created($"/api/sessions/{session.Id}", session);
         });
 
-        group.MapGet("/{sessionId:guid}", (Guid sessionId, ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
+        owner.MapGet("/{sessionId:guid}", (Guid sessionId, ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
             sessions.GetAsync(user.UserId(), sessionId, ct));
 
-        group.MapPut("/{sessionId:guid}/settings", (
+        owner.MapPut("/{sessionId:guid}/settings", (
             Guid sessionId,
             UpdateSessionSettingsCommand request,
             ClaimsPrincipal user,
             SessionService sessions,
             CancellationToken ct) => sessions.UpdateSettingsAsync(user.UserId(), sessionId, request, ct));
 
-        group.MapPut("/{sessionId:guid}/auto-answer", (
+        owner.MapPut("/{sessionId:guid}/auto-answer", (
             Guid sessionId,
             SetAutoAnswerRequest request,
             ClaimsPrincipal user,
             SessionService sessions,
             CancellationToken ct) => sessions.SetAutoAnswerAsync(user.UserId(), sessionId, request.Enabled, ct));
 
-        group.MapPost("/{sessionId:guid}/start", (Guid sessionId, ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
+        owner.MapPost("/{sessionId:guid}/start", (Guid sessionId, ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
             sessions.StartAsync(user.UserId(), sessionId, ct));
 
-        group.MapPost("/{sessionId:guid}/end", (Guid sessionId, ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
+        owner.MapPost("/{sessionId:guid}/end", (Guid sessionId, ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
             sessions.EndAsync(user.UserId(), sessionId, ct));
 
-        group.MapPut("/{sessionId:guid}/keys/{provider}", async (
+        owner.MapPut("/{sessionId:guid}/keys/{provider}", async (
             Guid sessionId,
             string provider,
             SetSessionKeyRequest request,

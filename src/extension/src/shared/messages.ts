@@ -2,11 +2,11 @@ import type { AnswerEvent, SessionSummary } from './backend';
 
 /** popup/content → background requests. */
 export type Request =
-  | { kind: 'sign-in'; username: string; password: string }
-  | { kind: 'sign-out' }
+  | { kind: 'pair'; code: string }
+  | { kind: 'unpair' }
   | { kind: 'status' };
 
-export type StatusResponse = { signedIn: boolean; sessions: SessionSummary[]; error?: string };
+export type StatusResponse = { paired: boolean; sessions: SessionSummary[]; error?: string };
 
 /** Port name for answer streaming (content ↔ background). */
 export const ANSWER_PORT = 'answer-stream';

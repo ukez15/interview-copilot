@@ -47,7 +47,7 @@ internal static class CopilotEndpoints
                 return TypedResults.ServerSentEvents(ToEvents(header, tokens, ct));
             })
             .WithTags("Copilot")
-            .RequireAuthorization();
+            .RequireAuthorization(Policies.ExtensionScope);
     }
 
     private static async IAsyncEnumerable<SseItem<string>> ToEvents(
