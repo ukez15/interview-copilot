@@ -27,7 +27,7 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
 
     public TranscriptionWorkerTests()
     {
-        _sink = new TranscriptionSink(Options.Create(new VadOptions()));
+        _sink = new TranscriptionSink(Options.Create(new VadOptions()), new FixedRouter(deepgram: false));
         var services = new ServiceCollection();
         services.AddSingleton<ITranscriptRepository>(_store);
         services.AddSingleton<IUnitOfWork>(_store);
@@ -441,10 +441,12 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
     [Fact]
     public void Should_ThrowArgumentNull_When_ConstructorArgumentsMissing()
     {
-        var sink = () => new TranscriptionSink(null!);
+        var sink = () => new TranscriptionSink(null!, new FixedRouter(deepgram: false));
+        var noRouter = () => new TranscriptionSink(Options.Create(new VadOptions()), null!);
         var worker = () => new TranscriptionWorker(null!, _provider.GetRequiredService<IServiceScopeFactory>(), _publisher, NullLogger<TranscriptionWorker>.Instance);
 
         sink.Should().Throw<ArgumentNullException>();
+        noRouter.Should().Throw<ArgumentNullException>();
         worker.Should().Throw<ArgumentNullException>();
     }
 

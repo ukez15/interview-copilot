@@ -39,8 +39,11 @@ public static class DependencyInjection
 
         services.AddSingleton<AudioStatsSink>();
         services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<AudioStatsSink>());
+        services.AddSingleton<ISpeechToTextRouter, SpeechToTextRouter>();
         services.AddSingleton<TranscriptionSink>();
         services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<TranscriptionSink>());
+        services.AddSingleton<DeepgramStreamingSink>();
+        services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<DeepgramStreamingSink>());
         services.AddHostedService<TranscriptionWorker>();
         services.AddScoped<AudioIngestService>();
 

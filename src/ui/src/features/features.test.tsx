@@ -214,11 +214,11 @@ describe('LiveAssistant and AnswerCard', () => {
 
 describe('SettingsPage', () => {
   it('changes opacity and auto-start, and saves a BYOK key when a provider needs one', async () => {
-    const { api } = fakeApi((url) =>
+    const { api } = fakeApi((url, init) =>
       url.endsWith('/api/pairing/browsers')
         ? json([])
         : !url.endsWith('/api/providers')
-        ? json(url.endsWith('/models') ? [] : { llmModel: null })
+        ? json(url.endsWith('/models') ? [] : { llmModel: null, speechToTextProvider: init.method === 'PUT' ? 'deepgram' : null })
         : json({
         speechToText: [
           { name: 'whisper', displayName: 'Whisper (local, free)', isLocal: true, requiresApiKey: false, isDefault: true },
@@ -231,7 +231,7 @@ describe('SettingsPage', () => {
     const setOpacity = vi.spyOn(platform, 'setOverlayOpacity');
     renderWithApp(<SettingsPage />, { api, platform });
 
-    expect(await screen.findByText('Deepgram (cloud, paid)')).toBeInTheDocument();
+    expect(await screen.findByRole('option', { name: 'Deepgram (cloud, paid)' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Reset to 85%' }));
     expect(setOpacity).toHaveBeenCalledWith(0.85);
     fireEvent.keyDown(screen.getByRole('slider', { name: 'Overlay opacity' }), { key: 'ArrowLeft' });
@@ -240,8 +240,9 @@ describe('SettingsPage', () => {
     await userEvent.click(screen.getByRole('checkbox'));
     expect((await platform.getSettings()).autoStartOnMeeting).toBe(true);
 
-    await userEvent.type(screen.getByLabelText('deepgram API key'), 'dg-key');
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await userEvent.selectOptions(screen.getByLabelText('Speech-to-text provider'), 'deepgram');
+    await userEvent.type(await screen.findByLabelText('deepgram API key'), 'dg-key');
+    await userEvent.click(screen.getByRole('button', { name: 'Save key' }));
     expect(await screen.findByText('Saving API keys needs the desktop app.')).toBeInTheDocument();
   });
 
@@ -253,13 +254,19 @@ describe('SettingsPage', () => {
         ? json([])
         : !url.endsWith('/api/providers')
         ? json(url.endsWith('/models') ? [] : { llmModel: null })
-        : json({ speechToText: [{ name: 'deepgram', displayName: 'Deepgram', isLocal: false, requiresApiKey: true, isDefault: true }], llm: [] }),
+        : json({
+            speechToText: [
+              { name: 'deepgram', displayName: 'Deepgram', isLocal: false, requiresApiKey: true, isDefault: true },
+              { name: 'whisper', displayName: 'Whisper', isLocal: true, requiresApiKey: false, isDefault: false },
+            ],
+            llm: [{ name: 'ollama', displayName: 'Ollama', isLocal: true, requiresApiKey: true, isDefault: true }],
+          }),
     );
     renderWithApp(<SettingsPage />, { api, platform });
 
     await userEvent.type(await screen.findByLabelText('deepgram API key'), 'k');
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText('Saved to your OS keychain.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Save key' }));
+    await waitFor(() => expect(platform.setApiKey).toHaveBeenCalledWith('deepgram', 'k'));
 
     const failing = fakeApi((url) => (url.endsWith('/api/pairing/browsers') ? json([]) : url.endsWith('/api/providers') ? json({ detail: 'No providers' }, 500) : json(url.endsWith('/models') ? [] : { llmModel: null })));
     renderWithApp(<SettingsPage />, { api: failing.api });
