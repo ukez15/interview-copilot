@@ -69,7 +69,7 @@ export async function waitForHealthy(
   return false;
 }
 
-type Spawn = (command: string, args: string[], options: { stdio: 'ignore'; windowsHide: boolean }) => ChildProcess;
+type Spawn = (command: string, args: string[], options: { cwd: string; stdio: 'ignore'; windowsHide: boolean }) => ChildProcess;
 
 /**
  * Starts the bundled backend and restarts it up to MAX_RESTARTS times if it crashes
@@ -92,7 +92,13 @@ export class BackendProcess {
 
   start(): void {
     this.stopping = false;
-    this.child = this.spawnImpl(this.executable, ['--urls', BACKEND_URL], { stdio: 'ignore', windowsHide: true });
+    // ASP.NET loads appsettings.json from its working folder; without it the CORS allow-list is empty and the UI is
+    // locked out (#75), so run it from the folder that holds the exe rather than wherever Electron was started.
+    this.child = this.spawnImpl(this.executable, ['--urls', BACKEND_URL], {
+      cwd: path.dirname(this.executable),
+      stdio: 'ignore',
+      windowsHide: true,
+    });
     this.child.once('exit', (code) => this.handleExit(code));
   }
 
