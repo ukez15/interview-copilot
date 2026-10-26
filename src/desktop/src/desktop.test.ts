@@ -300,9 +300,19 @@ describe('backend process', () => {
       children.at(-1)!.emit('exit', 1);
     }
 
-    expect(spawnImpl).toHaveBeenCalledWith('api.exe', ['--urls', 'http://127.0.0.1:5480'], { stdio: 'ignore', windowsHide: true });
+    expect(spawnImpl).toHaveBeenCalledWith('api.exe', ['--urls', 'http://127.0.0.1:5480'], expect.objectContaining({ stdio: 'ignore', windowsHide: true }));
     expect(backend.restartCount).toBe(MAX_RESTARTS);
     expect(onFatal).toHaveBeenCalledWith(expect.stringContaining('port 5480'));
+  });
+
+  it('starts the backend in its own folder so it finds its appsettings.json (#75)', () => {
+    const spawnImpl = vi.fn(() => Object.assign(new EventEmitter(), { kill: vi.fn() }) as unknown as ChildProcess);
+    const executable = packagedBackendPath(path.join('install', 'resources'), 'win32');
+    const backend = new BackendProcess(executable, vi.fn(), spawnImpl);
+
+    backend.start();
+
+    expect(spawnImpl).toHaveBeenCalledWith(executable, expect.any(Array), expect.objectContaining({ cwd: path.join('install', 'resources', 'backend') }));
   });
 
   it('does not restart after a deliberate stop', () => {
