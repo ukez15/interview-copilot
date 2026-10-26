@@ -143,6 +143,15 @@ describe('ApiClient', () => {
     expect(api.transcriptPdfUrl('s1')).toBe('http://api.test/api/sessions/s1/transcript/pdf');
   });
 
+  it('sends copyFromSessionId when creating a session from another (#16)', async () => {
+    const { api, fetchImpl } = fakeApi(() => json({}));
+
+    await api.createSession({ title: 'Zoom', mode: 'LiveInterview', answerLength: 'Short', framework: 'None', pinnedQuestionType: null, sessionPrompt: '', copyFromSessionId: 's0' });
+
+    expect(fetchImpl.mock.calls[0]![0]).toBe('http://api.test/api/sessions');
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]![1]!.body))).toMatchObject({ title: 'Zoom', copyFromSessionId: 's0' });
+  });
+
   it('calls the wave-3 provider and session-key endpoints', async () => {
     const { api, fetchImpl } = fakeApi(() => json({}));
 

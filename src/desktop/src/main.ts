@@ -6,9 +6,9 @@ import { refreshAccessToken } from './auth-refresh';
 import { AuthStore } from './auth-store';
 import { CaptureController } from './capture-controller';
 import { openDataFolder } from './data-folder';
-import { APP_HOST, APP_PROTOCOL, BACKEND_URL, CaptureChannels, IpcChannels } from './ipc-channels';
+import { APP_HOST, APP_PROTOCOL, BACKEND_URL, CaptureChannels, IpcChannels, IpcEvents } from './ipc-channels';
 import { KeyStore } from './key-store';
-import { decide, detectMeetingApp, listProcessNames } from './meeting-detection';
+import { decide, detectMeetingApp, listProcessNames, meetingEventFor } from './meeting-detection';
 import { clampOpacity, SettingsStore } from './settings-store';
 import { createCaptureWindow, createMainWindow, createOverlayWindow } from './windows';
 
@@ -174,9 +174,10 @@ function watchForMeetings(): void {
       const meeting = detectMeetingApp(await listProcessNames().catch(() => []));
       const decision = decide(lastMeeting, meeting, (await settings.get()).autoStartOnMeeting);
       lastMeeting = meeting;
-      if (decision === 'ignore' || !mainWindow) {
+      if (decision === 'ignore' || !mainWindow || !meeting) {
         return;
       }
+      let accepted = false;
       if (decision === 'ask') {
         const { response } = await dialog.showMessageBox(mainWindow, {
           type: 'question',
@@ -186,12 +187,16 @@ function watchForMeetings(): void {
           message: `${meeting} meeting detected. Start InterviewCopilot?`,
           detail: 'It will listen to the meeting audio on this computer. Make sure transcription is allowed in this conversation.',
         });
-        if (response !== 0) {
-          return;
-        }
+        accepted = response === 0;
+      }
+      const event = meetingEventFor(decision, meeting, accepted);
+      if (!event) {
+        return;
       }
       mainWindow.show();
       mainWindow.focus();
+      // #16: the UI picks or creates the session and starts capture; nothing starts here.
+      mainWindow.webContents.send(IpcEvents.meetingDetected, event);
     })();
   }, MEETING_POLL_MS);
 }
