@@ -16,6 +16,8 @@ export interface CaptureConfig {
   token: string;
   micDeviceId: string | null;
   backendUrl: string;
+  /** Mock interview sessions record only the microphone: no system-audio loopback (#26). */
+  micOnly: boolean;
 }
 
 export const IDLE_STATUS: CaptureStatus = { state: 'idle', interviewer: false, mic: false, message: null };

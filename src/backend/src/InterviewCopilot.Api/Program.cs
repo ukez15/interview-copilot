@@ -69,6 +69,7 @@ app.MapSessionEndpoints();
 app.MapDocumentEndpoints();
 app.MapCopilotEndpoints();
 app.MapTranscriptEndpoints();
+app.MapPracticeEndpoints();
 app.MapAudioEndpoints();
 app.MapEventsEndpoints();
 
