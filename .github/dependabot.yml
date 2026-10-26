@@ -7,6 +7,10 @@ updates:
       interval: weekly
     commit-message:
       prefix: chore
+    ignore:
+      # 8.x moved to the paid-for-commercial-use Xceed Community License (zero-cost principle, #65).
+      - dependency-name: FluentAssertions
+        versions: [">= 8.0.0"]
     groups:
       dotnet-minor:
         update-types: [minor, patch]
