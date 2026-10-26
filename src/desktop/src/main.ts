@@ -1,7 +1,7 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, net, protocol, safeStorage, session, shell, webContents, type IpcMainInvokeEvent } from 'electron';
-import { BackendProcess, packagedBackendPath, waitForHealthy } from './backend-process';
+import { BackendProcess, ensureBackend, isHealthy, packagedBackendPath, waitForHealthy } from './backend-process';
 import { refreshAccessToken } from './auth-refresh';
 import { AuthStore } from './auth-store';
 import { CaptureController } from './capture-controller';
@@ -153,10 +153,15 @@ function serveUi(): void {
 }
 
 async function startBackend(): Promise<void> {
-  if (app.isPackaged) {
-    backend = new BackendProcess(packagedBackendPath(process.resourcesPath), (message) => dialog.showErrorBox('InterviewCopilot', message));
-    backend.start();
-  }
+  // A backend that already answers is reused and left running on quit, since `backend` stays null (#36).
+  await ensureBackend({
+    packaged: app.isPackaged,
+    probe: () => isHealthy(),
+    spawnBackend: () => {
+      backend = new BackendProcess(packagedBackendPath(process.resourcesPath), (message) => dialog.showErrorBox('InterviewCopilot', message));
+      backend.start();
+    },
+  });
   if (!(await waitForHealthy())) {
     dialog.showErrorBox(
       'InterviewCopilot',
