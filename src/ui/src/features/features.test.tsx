@@ -217,11 +217,14 @@ describe('SessionPage', () => {
     expect(await screen.findByText('Export failed here')).toBeInTheDocument();
   });
 
-  it('shows the practice panel instead of the live assistant in mock interviews', async () => {
-    const { api } = fakeApi((url) => (url.endsWith('/practice/attempts') ? json([]) : json({ ...sampleSession, mode: 'MockInterview' })));
+  it('sends mock interviews to the overlay and keeps only the history in the main window', async () => {
+    const { api } = fakeApi((url) =>
+      url.endsWith('/practice/attempts') ? json([]) : json({ ...sampleSession, mode: 'MockInterview', status: 'Live' }),
+    );
     renderWithApp(<SessionPage />, { api, ...route });
 
-    expect(await screen.findByRole('button', { name: 'Next question' })).toBeInTheDocument();
+    expect(await screen.findByText('Practising in the overlay.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Next question' })).not.toBeInTheDocument();
     expect(screen.queryByText('Live assistant')).not.toBeInTheDocument();
   });
 

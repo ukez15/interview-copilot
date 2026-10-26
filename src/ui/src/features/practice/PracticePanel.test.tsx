@@ -4,7 +4,7 @@ import { createWebPlatform } from '@/platform';
 import { FakeWebSocket } from '@/test/fakeWebSocket';
 import { fakeApi, json, renderWithApp, sampleSession } from '@/test/helpers';
 import type { PracticeAttempt } from '@/types/api';
-import { PRACTICE_SILENCE_MS, PracticePanel } from './PracticePanel';
+import { PRACTICE_SILENCE_MS, PracticePanel, PracticeSummaryCard } from './PracticePanel';
 
 const attempt: PracticeAttempt = {
   id: 'a1',
@@ -88,7 +88,7 @@ describe('PracticePanel', () => {
     expect(screen.queryByText('ignored words')).not.toBeInTheDocument();
   });
 
-  it('scores on "Done answering" click and shows the score card and attempts', async () => {
+  it('scores on "Done answering" click and shows the score card, leaving the history to the main window', async () => {
     const ctx = setup();
     await mount(ctx);
     fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
@@ -101,7 +101,7 @@ describe('PracticePanel', () => {
     expect(ctx.calls.finish).toBe(1);
     expect(screen.getByLabelText('Score')).toHaveTextContent('7/10');
     expect(screen.getByLabelText('Score')).toHaveTextContent('Add numbers.');
-    expect(screen.getByRole('list', { name: 'Previous attempts' })).toHaveTextContent('Why us? — 7/10');
+    expect(screen.queryByRole('list', { name: 'Previous attempts' })).not.toBeInTheDocument();
 
     // The 4 s timer armed by the segment must not score a second time.
     await act(async () => {
@@ -168,11 +168,10 @@ describe('PracticePanel', () => {
     expect(screen.getByLabelText('Score')).toHaveTextContent('7/10');
   });
 
-  it('shows an error when the next question fails and lists earlier attempts', async () => {
-    const ctx = setup({ attempts: [attempt], next: () => json({ detail: 'Model down' }, 503) });
+  it('shows an error when the next question fails', async () => {
+    const ctx = setup({ next: () => json({ detail: 'Model down' }, 503) });
     await mount(ctx);
 
-    expect(screen.getByRole('list', { name: 'Previous attempts' })).toHaveTextContent('Why us? — 7/10');
     fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
     await flush();
 
@@ -202,5 +201,62 @@ describe('PracticePanel', () => {
 
     expect(screen.getByRole('button', { name: 'Next question' })).toBeDisabled();
     expect(screen.getByText('Start the session to practice.')).toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  });
+
+  it('shows whether the mic is heard while live', async () => {
+    const ctx = setup();
+    const platform = createWebPlatform();
+    vi.spyOn(platform, 'getCaptureStatus').mockResolvedValue({ state: 'live', interviewer: false, mic: true, message: null });
+    await platform.setAuthTokens({ accessToken: 'tok', refreshToken: 'r' });
+    renderWithApp(<PracticePanel sessionId="s1" live />, { api: ctx.api, platform });
+    await flush();
+
+    expect(screen.getByRole('status')).toHaveTextContent('Mic ✓ Listening');
+  });
+});
+
+describe('PracticeSummaryCard', () => {
+  function mountSummary(options: { live?: boolean; attempts?: () => Response } = {}) {
+    let calls = 0;
+    const { api } = fakeApi(() => {
+      calls += 1;
+      return options.attempts ? options.attempts() : json([attempt]);
+    });
+    renderWithApp(<PracticeSummaryCard sessionId="s1" live={options.live ?? true} />, { api });
+    return { calls: () => calls };
+  }
+
+  it('points to the overlay while live and lists earlier attempts', async () => {
+    mountSummary();
+
+    expect(screen.getByText('Practising in the overlay.')).toBeInTheDocument();
+    expect(await screen.findByRole('list', { name: 'Previous attempts' })).toHaveTextContent('Why us? — 7/10');
+    expect(screen.queryByRole('button', { name: 'Next question' })).not.toBeInTheDocument();
+  });
+
+  it('asks to start the session when not live', () => {
+    mountSummary({ live: false });
+
+    expect(screen.getByText('Start the session to practice.')).toBeInTheDocument();
+  });
+
+  it('reloads the attempts when the window regains focus, so overlay scores show up', async () => {
+    const view = mountSummary();
+    await screen.findByRole('list', { name: 'Previous attempts' });
+    expect(view.calls()).toBe(1);
+
+    await act(async () => {
+      window.dispatchEvent(new Event('focus'));
+      await Promise.resolve();
+    });
+
+    expect(view.calls()).toBe(2);
+  });
+
+  it('shows an error when the attempts cannot be loaded', async () => {
+    mountSummary({ attempts: () => json({ detail: 'Backend down' }, 500) });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Backend down');
   });
 });

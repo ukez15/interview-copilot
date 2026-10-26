@@ -5,6 +5,7 @@ import { createWebPlatform, type CaptureStatus } from '@/platform';
 import { fakeApi, json, renderWithApp, sampleSession } from '@/test/helpers';
 import { SessionPage } from '@/features/sessions/SessionPage';
 import { CAPTURE_POLL_MS, CaptureIndicator } from './CaptureIndicator';
+import { MicStatus } from './MicStatus';
 import { listMicrophones, MicrophonePicker } from './MicrophonePicker';
 import { chooseOption } from '@/test/select';
 
@@ -37,6 +38,49 @@ describe('CaptureIndicator', () => {
     const getStatus = vi.spyOn(platform, 'getCaptureStatus');
     const { api } = fakeApi(() => json({}));
     const { container } = renderWithApp(<CaptureIndicator active={false} />, { api, platform });
+
+    expect(container).toBeEmptyDOMElement();
+    expect(getStatus).not.toHaveBeenCalled();
+  });
+});
+
+describe('MicStatus', () => {
+  function mount(status: CaptureStatus, active = true) {
+    const platform = createWebPlatform();
+    const getStatus = vi.spyOn(platform, 'getCaptureStatus').mockResolvedValue(status);
+    const { api } = fakeApi(() => json({}));
+    const view = renderWithApp(<MicStatus active={active} />, { api, platform });
+    return { ...view, getStatus };
+  }
+
+  it('shows the mic is live while capture is listening to it', async () => {
+    mount({ state: 'live', interviewer: false, mic: true, message: null });
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Mic ✓ Listening');
+  });
+
+  it('shows why the mic is not heard instead of listening silently', async () => {
+    mount({ state: 'live', interviewer: false, mic: false, message: 'Microphone unavailable.' });
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Mic ✗ Microphone unavailable.');
+  });
+
+  it('falls back to the capture state when there is no message', async () => {
+    mount({ state: 'error', interviewer: false, mic: false, message: null });
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Mic ✗ Capture problem');
+  });
+
+  it('does not flag the mic while capture is still connecting', async () => {
+    mount({ state: 'connecting', interviewer: false, mic: false, message: null });
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent('Connecting…');
+    expect(status).not.toHaveTextContent('✗');
+  });
+
+  it('renders nothing and does not poll when inactive', () => {
+    const { container, getStatus } = mount({ state: 'live', interviewer: false, mic: true, message: null }, false);
 
     expect(container).toBeEmptyDOMElement();
     expect(getStatus).not.toHaveBeenCalled();
