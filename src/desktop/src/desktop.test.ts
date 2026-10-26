@@ -5,9 +5,9 @@ import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
 import { BackendProcess, MAX_RESTARTS, packagedBackendPath, waitForHealthy } from './backend-process';
-import { IpcChannels } from './ipc-channels';
+import { IpcChannels, IpcEvents } from './ipc-channels';
 import { KeyStore, type SecretCipher } from './key-store';
-import { decide, detectMeetingApp, normalizeProcessName, parsePs, parseTasklist } from './meeting-detection';
+import { decide, detectMeetingApp, meetingEventFor, normalizeProcessName, parsePs, parseTasklist } from './meeting-detection';
 import { clampOpacity, DEFAULT_SETTINGS, sanitize, SettingsStore } from './settings-store';
 
 const tempDir = () => mkdtemp(path.join(tmpdir(), 'ic-desktop-'));
@@ -113,6 +113,31 @@ describe('preload bridge', () => {
     const used = [...source.matchAll(/invoke\('([^']+)'/g)].map((m) => m[1]).sort();
 
     expect(used).toEqual(Object.values(IpcChannels).sort());
+  });
+
+  it('listens to exactly the events the main process sends', async () => {
+    const source = await readFile(path.join(import.meta.dirname, 'preload.ts'), 'utf8');
+    const listened = [...source.matchAll(/ipcRenderer\.on\('([^']+)'/g)].map((m) => m[1]).sort();
+
+    expect(listened).toEqual(Object.values(IpcEvents).sort());
+  });
+});
+
+describe('meeting event', () => {
+  it('tells the renderer to show the picker after the user accepted the prompt', () => {
+    expect(meetingEventFor('ask', 'Zoom', true)).toEqual({ app: 'Zoom', autoStart: false });
+  });
+
+  it('sends nothing when the user declined the prompt', () => {
+    expect(meetingEventFor('ask', 'Zoom', false)).toBeNull();
+  });
+
+  it('asks the renderer to start straight away only when auto-start decided so', () => {
+    expect(meetingEventFor('start', 'Webex', false)).toEqual({ app: 'Webex', autoStart: true });
+  });
+
+  it('sends nothing for an ignored meeting', () => {
+    expect(meetingEventFor('ignore', 'Zoom', true)).toBeNull();
   });
 });
 

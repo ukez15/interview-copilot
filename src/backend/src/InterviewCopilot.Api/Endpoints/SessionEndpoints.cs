@@ -11,7 +11,8 @@ public sealed record CreateSessionRequest(
     AnswerLength AnswerLength,
     AnswerFramework Framework,
     QuestionType? PinnedQuestionType,
-    string? SessionPrompt);
+    string? SessionPrompt,
+    Guid? CopyFromSessionId = null);
 
 public sealed record SetAutoAnswerRequest(bool Enabled);
 
@@ -37,7 +38,8 @@ internal static class SessionEndpoints
                     request.AnswerLength,
                     request.Framework,
                     request.PinnedQuestionType,
-                    request.SessionPrompt),
+                    request.SessionPrompt,
+                    request.CopyFromSessionId),
                 ct);
             return TypedResults.Created($"/api/sessions/{session.Id}", session);
         });

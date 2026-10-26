@@ -59,6 +59,8 @@ export interface CreateSessionInput {
   framework: AnswerFramework;
   pinnedQuestionType: QuestionType | null;
   sessionPrompt: string;
+  /** #16: copy mode, answer settings and documents from this session (the other fields except title are ignored). */
+  copyFromSessionId?: string;
 }
 
 /** PUT /api/sessions/{id}/settings (#10). */

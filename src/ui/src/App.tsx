@@ -1,4 +1,6 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router';
+import { MeetingListener } from '@/features/meeting/MeetingListener';
+import { StartFromMeetingPage } from '@/features/meeting/StartFromMeetingPage';
 import { SignInPage } from '@/features/auth/SignInPage';
 import { OverlayPage } from '@/features/overlay/OverlayPage';
 import { SessionPage } from '@/features/sessions/SessionPage';
@@ -16,8 +18,10 @@ export function App() {
 
   return (
     <HashRouter>
+      <MeetingListener />
       <Routes>
         <Route path="/" element={<SessionsPage />} />
+        <Route path="/start-from-meeting" element={<StartFromMeetingPage />} />
         <Route path="/sessions/:sessionId" element={<SessionPage />} />
         <Route path="/sessions/:sessionId/transcript" element={<TranscriptPage />} />
         <Route path="/overlay/:sessionId" element={<OverlayPage />} />
