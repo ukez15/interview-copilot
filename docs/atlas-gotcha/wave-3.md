@@ -234,3 +234,31 @@ Schema changes all go into **one** migration here, so no two agents generate EF 
 - `start-live.ts` (#30 adds the key hand-off; #16 only calls it).
 
 **Merge order:** #30 → #20 → #26 → #33 → #16 → #24, merging main into each branch as needed.
+
+---
+
+## What we adjusted (review, 2026-10-26)
+
+All six issues merged: #30 (PR #50), #20 (#53), #26 (#54), #33 (#55), #16 (#56), #24 (#57). #24 stays open
+until the owner runs the benchmark on the reference machine and commits `docs/benchmarks/latency.md`.
+
+- **Goals / Args.** As briefed, with these agent choices kept:
+  - #33: a pairing token on a non-extension endpoint gets 401, not 403, because the default policy is
+    bearer-only, so the token simply doesn't authenticate.
+  - #20: one Deepgram reconnect per stream; a 403 is treated like a 401. The old batch Deepgram
+    provider was removed, so Whisper is always the batch provider.
+  - #16: copies also carry the AutoAnswer flag; failed auto-starts fall back to the picker.
+- **Context.** `ISessionKeyStore.Set` became `Store`, because of the CA1716 keyword rule. The UI's
+  `ApiClient` no longer treats a 401 that carries a problem `detail` (a rejected cloud key) as an
+  expired sign-in.
+- **Orchestration.** Agents were cut off once by a usage limit and resumed from their saved state. All
+  merges needed main merged in first, and the conflicts were all keep-both.
+- **Heuristics / Tools.**
+  - Windows Smart App Control escalated from blocking single builds to blocking the QuestPDF native
+    DLL and the test executables. The owner turned it off.
+  - Three flaky tests were fixed on main: the 1,000-entry transcript render, the Deepgram socket
+    handshake race, and the auto-answer cancellation race.
+  - Run vitest coverage as `pnpm exec vitest run --coverage`. `pnpm test -- --coverage` passes the
+    flag as a file filter.
+- **Open for the owner.** Review the UI wording the agents chose (settings cards, practice panel,
+  pairing popup) and whether the OpenAI model list should be filtered to chat models.
