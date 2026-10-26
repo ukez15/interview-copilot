@@ -12,30 +12,38 @@ namespace InterviewCopilot.Application.Audio;
 public sealed class TranscriptionSink : IAudioFrameSink
 {
     private readonly VadOptions _options;
+    private readonly ISpeechToTextRouter _router;
     private readonly ConcurrentDictionary<Guid, SessionPipeline> _pipelines = new();
     private readonly Channel<SessionPipeline> _newPipelines = Channel.CreateUnbounded<SessionPipeline>(
         new UnboundedChannelOptions { SingleReader = true });
 
     /// <summary>Creates the sink.</summary>
     /// <param name="options">Voice-activity settings (queue size and thresholds).</param>
-    public TranscriptionSink(IOptions<VadOptions> options)
+    /// <param name="router">Says which sessions go to Deepgram streaming instead; this sink skips those.</param>
+    public TranscriptionSink(IOptions<VadOptions> options, ISpeechToTextRouter router)
     {
         ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(router);
         _options = options.Value;
+        _router = router;
     }
 
     internal ChannelReader<SessionPipeline> NewPipelines => _newPipelines.Reader;
 
-    /// <summary>Copies the frame into the session's queue and returns immediately.</summary>
+    /// <summary>Copies the frame into the session's queue and returns immediately. Deepgram-routed sessions are skipped.</summary>
     /// <param name="sessionId">The session the audio belongs to.</param>
     /// <param name="frame">One 100 ms frame; the sink copies it, so the caller may reuse its buffer.</param>
-    /// <param name="cancellationToken">Unused: enqueueing never waits.</param>
-    /// <returns>A completed task.</returns>
-    public ValueTask OnFrameAsync(Guid sessionId, AudioFrame frame, CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Cancels the routing lookup; enqueueing never waits.</param>
+    /// <returns>A task that completes once the frame is queued (or skipped).</returns>
+    public async ValueTask OnFrameAsync(Guid sessionId, AudioFrame frame, CancellationToken cancellationToken)
     {
+        if (await _router.UsesDeepgramAsync(sessionId, cancellationToken))
+        {
+            return;
+        }
+
         var pipeline = PipelineFor(sessionId);
         pipeline.Frames.Writer.TryWrite(new AudioFrame(frame.Speaker, frame.Pcm16.ToArray()));
-        return ValueTask.CompletedTask;
     }
 
     /// <summary>
