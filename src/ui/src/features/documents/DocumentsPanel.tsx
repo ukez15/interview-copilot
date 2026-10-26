@@ -2,7 +2,9 @@ import { useState, type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { CardDescription } from '@/components/ui/card';
 import { useApp } from '@/lib/app-context';
+import { cn } from '@/lib/utils';
 import { MAX_DOCUMENTS_PER_SESSION, type DocumentSummary } from '@/types/api';
+import { JobLinkImport } from './JobLinkImport';
 
 /** FR-02: up to 10 grounding documents per session. */
 export function DocumentsPanel({
@@ -63,10 +65,29 @@ export function DocumentsPanel({
           </li>
         ))}
       </ul>
-      <label className="text-sm">
-        <span className="sr-only">Add documents</span>
-        <input type="file" multiple accept=".txt,.md,.markdown,.pdf,.docx" disabled={remaining === 0} onChange={upload} aria-label="Add documents" />
-      </label>
+      {/* The native picker is hidden but still focusable; the label looks like the app's buttons so it reads as clickable. */}
+      <Button
+        asChild
+        variant="outline"
+        className={cn(
+          'w-fit cursor-pointer has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-primary',
+          remaining === 0 && 'pointer-events-none opacity-50',
+        )}
+      >
+        <label>
+          <input
+            type="file"
+            multiple
+            accept=".txt,.md,.markdown,.pdf,.docx"
+            disabled={remaining === 0}
+            onChange={upload}
+            aria-label="Add documents"
+            className="sr-only"
+          />
+          Choose files
+        </label>
+      </Button>
+      <JobLinkImport sessionId={sessionId} documents={documents} disabled={remaining === 0} onChange={onChange} />
       {error && (
         <p role="alert" className="text-sm text-destructive">
           {error}

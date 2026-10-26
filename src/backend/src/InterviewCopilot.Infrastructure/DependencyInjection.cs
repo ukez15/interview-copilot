@@ -10,6 +10,7 @@ using InterviewCopilot.Infrastructure.Pdf;
 using InterviewCopilot.Infrastructure.Persistence;
 using InterviewCopilot.Infrastructure.Security;
 using InterviewCopilot.Infrastructure.Transcription;
+using InterviewCopilot.Infrastructure.Web;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -47,6 +48,8 @@ public static class DependencyInjection
         services.AddSingleton<IDocumentTextExtractor, PlainTextExtractor>();
         services.AddSingleton<IDocumentTextExtractor, PdfTextExtractor>();
         services.AddSingleton<IDocumentTextExtractor, DocxTextExtractor>();
+        services.AddSingleton<IWebPageFetcher, SafeWebPageFetcher>();
+        services.AddSingleton<IJobPostingExtractor, JobPostingExtractor>();
         services.AddSingleton<IPdfExporter, QuestPdfTranscriptExporter>();
 
         // Each chat provider is a typed client of its own class (so their HttpClient settings don't merge)
