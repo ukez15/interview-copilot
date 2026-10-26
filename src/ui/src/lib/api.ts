@@ -5,6 +5,7 @@ import type {
   CreateSessionInput,
   CloudModel,
   DocumentSummary,
+  JobPostingPreview,
   OllamaModel,
   PairedBrowser,
   PairingCode,
@@ -150,6 +151,11 @@ export class ApiClient {
     const form = new FormData();
     form.append('file', file);
     return this.json(`/api/sessions/${sessionId}/documents`, { method: 'POST', body: form });
+  }
+
+  /** Reads a job description from a link without saving anything; save it with `uploadDocument`. */
+  previewJobPosting(sessionId: string, url: string): Promise<JobPostingPreview> {
+    return this.json(`/api/sessions/${sessionId}/documents/from-link/preview`, { method: 'POST', body: JSON.stringify({ url }) });
   }
 
   async removeDocument(sessionId: string, documentId: string): Promise<void> {

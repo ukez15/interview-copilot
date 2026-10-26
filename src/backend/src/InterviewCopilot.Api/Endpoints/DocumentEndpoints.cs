@@ -4,6 +4,8 @@ using InterviewCopilot.Application.Documents;
 
 namespace InterviewCopilot.Api.Endpoints;
 
+public sealed record JobPostingLinkRequest(string Url);
+
 internal static class DocumentEndpoints
 {
     public static void MapDocumentEndpoints(this IEndpointRouteBuilder app)
@@ -18,6 +20,16 @@ internal static class DocumentEndpoints
             return TypedResults.Created($"/api/sessions/{sessionId}/documents/{document.Id}", document);
         })
         .DisableAntiforgery();
+
+        // Fetches the page and returns the job description for the user to edit. Nothing is stored here: the UI
+        // saves the (edited) text through the upload endpoint above.
+        group.MapPost("/from-link/preview", async (
+            Guid sessionId,
+            JobPostingLinkRequest request,
+            ClaimsPrincipal user,
+            JobPostingImportService import,
+            CancellationToken ct) =>
+            TypedResults.Ok(await import.PreviewAsync(user.UserId(), sessionId, request.Url, ct)));
 
         group.MapDelete("/{documentId:guid}", async (
             Guid sessionId,

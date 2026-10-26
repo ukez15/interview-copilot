@@ -35,6 +35,15 @@ export interface DocumentSummary {
   createdAt: string;
 }
 
+export type JobPostingSource = 'JsonLd' | 'Readable';
+
+/** A job description read from a link; nothing is stored until the user saves it as a document. */
+export interface JobPostingPreview {
+  suggestedName: string;
+  text: string;
+  source: JobPostingSource;
+}
+
 export interface Session {
   id: string;
   title: string;
