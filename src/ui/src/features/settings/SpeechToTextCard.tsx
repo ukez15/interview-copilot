@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
-import { Input, Label, Select } from '@/components/ui/form';
+import { Input, Label } from '@/components/ui/form';
+import { Select } from '@/components/ui/select';
 import { useApp } from '@/lib/app-context';
 import type { ProviderInfo } from '@/types/api';
 
@@ -45,14 +46,15 @@ export function SpeechToTextCard({ providers }: { providers: ProviderInfo[] }) {
       <CardTitle>Speech-to-text</CardTitle>
       <div className="grid gap-2">
         <Label htmlFor="stt-provider">Speech-to-text provider</Label>
-        <Select id="stt-provider" value={selected ?? ''} onChange={(e) => void change(e.target.value)}>
-          <option value="">{defaultProvider ? `Default (${defaultProvider.displayName})` : 'Default'}</option>
-          {providers.map((provider) => (
-            <option key={provider.name} value={provider.name}>
-              {provider.displayName}
-            </option>
-          ))}
-        </Select>
+        <Select
+          id="stt-provider"
+          value={selected ?? ''}
+          onValueChange={(v) => void change(v)}
+          options={[
+            { value: '', label: defaultProvider ? `Default (${defaultProvider.displayName})` : 'Default' },
+            ...providers.map((provider) => ({ value: provider.name, label: provider.displayName })),
+          ]}
+        />
       </div>
       {effective?.requiresApiKey && <SpeechKeyField provider={effective.name} />}
       {error && (

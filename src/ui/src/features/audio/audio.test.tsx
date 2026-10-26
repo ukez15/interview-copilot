@@ -6,6 +6,7 @@ import { fakeApi, json, renderWithApp, sampleSession } from '@/test/helpers';
 import { SessionPage } from '@/features/sessions/SessionPage';
 import { CAPTURE_POLL_MS, CaptureIndicator } from './CaptureIndicator';
 import { listMicrophones, MicrophonePicker } from './MicrophonePicker';
+import { chooseOption } from '@/test/select';
 
 afterEach(() => vi.useRealTimers());
 
@@ -64,11 +65,11 @@ describe('MicrophonePicker', () => {
     const load = () => Promise.resolve([{ deviceId: 'usb', label: 'USB Headset' }]);
     const { rerender } = render(<MicrophonePicker value={null} onChange={onChange} load={load} />);
 
-    await userEvent.selectOptions(await screen.findByLabelText('Microphone'), 'usb');
+    await chooseOption(userEvent, 'Microphone', 'USB Headset');
     expect(onChange).toHaveBeenLastCalledWith('usb');
 
     rerender(<MicrophonePicker value="usb" onChange={onChange} load={load} />);
-    await userEvent.selectOptions(screen.getByLabelText('Microphone'), '');
+    await chooseOption(userEvent, 'Microphone', 'System default');
     expect(onChange).toHaveBeenLastCalledWith(null);
 
     rerender(<MicrophonePicker value="gone" onChange={onChange} load={load} />);

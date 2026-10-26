@@ -29,6 +29,7 @@ public static class DependencyInjection
         services.AddTransient<ILlmProviderResolver, LlmProviderResolver>();
         services.AddScoped<SessionService>();
         services.AddScoped<DocumentService>();
+        services.AddScoped<JobPostingImportService>();
         services.AddScoped<AccountService>();
         services.AddSingleton<PairingCodeStore>();
         services.AddScoped<PairingService>();

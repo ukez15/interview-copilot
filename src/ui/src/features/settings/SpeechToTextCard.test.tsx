@@ -5,6 +5,7 @@ import { createWebPlatform } from '@/platform';
 import { fakeApi, json, renderWithApp } from '@/test/helpers';
 import type { ProviderInfo } from '@/types/api';
 import { SpeechToTextCard } from './SpeechToTextCard';
+import { chooseOption, closeSelect, openSelect } from '@/test/select';
 
 const whisper: ProviderInfo = { name: 'whisper', displayName: 'Whisper (local, free)', isLocal: true, requiresApiKey: false, isDefault: true };
 const deepgram: ProviderInfo = { name: 'deepgram', displayName: 'Deepgram (cloud, paid)', isLocal: false, requiresApiKey: true, isDefault: false };
@@ -30,8 +31,10 @@ describe('SpeechToTextCard', () => {
     const { api } = setup();
     renderWithApp(<SpeechToTextCard providers={[whisper, deepgram]} />, { api });
 
-    expect(await screen.findByRole('option', { name: 'Default (Whisper (local, free))' })).toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'Deepgram (cloud, paid)' })).toBeInTheDocument();
+    const options = await openSelect(userEvent, 'Speech-to-text provider');
+    expect(await options.findByRole('option', { name: 'Default (Whisper (local, free))' })).toBeInTheDocument();
+    expect(options.getByRole('option', { name: 'Deepgram (cloud, paid)' })).toBeInTheDocument();
+    await closeSelect(userEvent);
     expect(screen.queryByLabelText('deepgram API key')).not.toBeInTheDocument();
   });
 
@@ -39,10 +42,10 @@ describe('SpeechToTextCard', () => {
     const { api, fetchImpl } = setup();
     renderWithApp(<SpeechToTextCard providers={[whisper, deepgram]} />, { api });
 
-    await userEvent.selectOptions(await screen.findByLabelText('Speech-to-text provider'), 'deepgram');
+    await chooseOption(userEvent, 'Speech-to-text provider', 'Deepgram (cloud, paid)');
     expect(await screen.findByText('Saved.')).toBeInTheDocument();
     expect(await screen.findByLabelText('deepgram API key')).toBeInTheDocument();
-    await userEvent.selectOptions(screen.getByLabelText('Speech-to-text provider'), '');
+    await chooseOption(userEvent, 'Speech-to-text provider', /^Default/);
 
     await waitFor(() => {
       const bodies = fetchImpl.mock.calls.filter((c) => c[1]?.method === 'PUT').map((c) => JSON.parse(String(c[1]!.body)));
@@ -56,7 +59,7 @@ describe('SpeechToTextCard', () => {
     renderWithApp(<SpeechToTextCard providers={[whisper, deepgram]} />, { api });
 
     expect(await screen.findByLabelText('deepgram API key')).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText('Speech-to-text provider')).toHaveValue('deepgram'));
+    await waitFor(() => expect(screen.getByLabelText('Speech-to-text provider')).toHaveTextContent('Deepgram (cloud, paid)'));
   });
 
   it('shows the key field when Deepgram is the configured default', async () => {
@@ -124,7 +127,7 @@ describe('SpeechToTextCard', () => {
     const { api } = setup(null, json({ detail: unavailable }, 400));
     renderWithApp(<SpeechToTextCard providers={[whisper, deepgram]} />, { api });
 
-    await userEvent.selectOptions(await screen.findByLabelText('Speech-to-text provider'), 'deepgram');
+    await chooseOption(userEvent, 'Speech-to-text provider', 'Deepgram (cloud, paid)');
     expect(await screen.findByRole('alert')).toHaveTextContent(unavailable);
 
     const failing = fakeApi(() => json({ detail: 'Backend down' }, 500));

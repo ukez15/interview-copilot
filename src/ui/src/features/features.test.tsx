@@ -12,6 +12,7 @@ import { OverlayPage } from './overlay/OverlayPage';
 import { SessionPage } from './sessions/SessionPage';
 import { SessionsPage } from './sessions/SessionsPage';
 import { SettingsPage } from './settings/SettingsPage';
+import { chooseOption, closeSelect, openSelect } from '@/test/select';
 
 describe('SignInPage', () => {
   it('registers, signs in and shares the token with the platform', async () => {
@@ -49,11 +50,11 @@ describe('SessionsPage', () => {
 
     expect(await screen.findByText('Acme onsite')).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Title'), 'Globex call');
-    await userEvent.selectOptions(screen.getByLabelText('Mode'), 'Conversation');
-    await userEvent.selectOptions(screen.getByLabelText('Answer length'), 'Long');
-    await userEvent.selectOptions(screen.getByLabelText('Answer framework'), 'Smart');
-    await userEvent.selectOptions(screen.getByLabelText(/Pin a question type/), 'SystemDesign');
-    await userEvent.selectOptions(screen.getByLabelText(/Pin a question type/), '');
+    await chooseOption(userEvent, 'Mode', 'Sales call / other conversation');
+    await chooseOption(userEvent, 'Answer length', 'Long');
+    await chooseOption(userEvent, 'Answer framework', 'SMART');
+    await chooseOption(userEvent, /Pin a question type/, 'System design');
+    await chooseOption(userEvent, /Pin a question type/, 'Auto-detect');
     await userEvent.type(screen.getByLabelText('Session prompt'), 'Buyer is a CTO');
     await userEvent.click(screen.getByRole('button', { name: 'Create session' }));
 
@@ -61,6 +62,69 @@ describe('SessionsPage', () => {
     const post = fetchImpl.mock.calls.find((call) => call[1]?.method === 'POST')!;
     const body = JSON.parse(String(post[1]!.body)) as Record<string, unknown>;
     expect(body).toMatchObject({ title: 'Globex call', mode: 'Conversation', answerLength: 'Long', framework: 'Smart', pinnedQuestionType: null });
+  });
+
+  describe('with a job link pasted into the title', () => {
+    const LINK = 'https://jobs.test/roles/1';
+    const created = { ...sampleSession, id: 'n1', title: 'Senior Engineer - Acme', documents: [] };
+    const preview = { suggestedName: 'Senior Engineer - Acme.txt', text: 'Build things.', source: 'JsonLd' };
+
+    function routes(uploadResponse: Response) {
+      return fakeApi((url, init) => {
+        if (url.endsWith('/from-link/preview')) return json(preview);
+        if (url.endsWith('/api/sessions/n1/documents') && init.method === 'POST') return uploadResponse;
+        if (init.method === 'POST') return json(created, 201);
+        return json([]);
+      });
+    }
+
+    async function pasteAndCreate() {
+      await screen.findByText('No sessions yet.');
+      fireEvent.paste(screen.getByLabelText('Title'), { clipboardData: { getData: () => LINK } });
+      await screen.findByLabelText('Job description');
+      await userEvent.click(screen.getByRole('button', { name: 'Create session' }));
+    }
+
+    it('uploads the job description after creating the session, then navigates', async () => {
+      const { api, fetchImpl } = routes(json({ id: 'd9', fileName: 'Senior Engineer - Acme.txt', characterCount: 13, createdAt: '' }, 201));
+      renderWithApp(<SessionsPage />, { api });
+
+      await pasteAndCreate();
+
+      expect(await screen.findByText('navigated')).toBeInTheDocument();
+      const calls = fetchImpl.mock.calls.map(([url, init]) => `${init?.method ?? 'GET'} ${String(url).replace('http://api.test', '')}`);
+      expect(calls.slice(-2)).toEqual(['POST /api/sessions', 'POST /api/sessions/n1/documents']);
+      const upload = fetchImpl.mock.calls.find(([url]) => String(url).endsWith('/api/sessions/n1/documents'))!;
+      const file = (upload[1]!.body as FormData).get('file') as File;
+      expect(file.name).toBe('Senior Engineer - Acme.txt');
+      expect(await file.text()).toBe('Build things.');
+    });
+
+    it('stays on the page, lists the new session and explains when the upload fails', async () => {
+      const { api } = routes(json({ detail: 'Document limit reached.' }, 400));
+      renderWithApp(<SessionsPage />, { api });
+
+      await pasteAndCreate();
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        "The session was created, but the job description couldn't be saved: Document limit reached. Add it from the session's Documents panel.",
+      );
+      expect(screen.queryByText('navigated')).not.toBeInTheDocument();
+      expect(screen.getByRole('link', { name: /Senior Engineer - Acme/ })).toHaveAttribute('href', '/sessions/n1');
+      expect(screen.queryByText('No sessions yet.')).not.toBeInTheDocument();
+    });
+
+    it('does not upload anything when there is no job description', async () => {
+      const { api, fetchImpl } = routes(json({}, 201));
+      renderWithApp(<SessionsPage />, { api });
+      await screen.findByText('No sessions yet.');
+
+      await userEvent.type(screen.getByLabelText('Title'), 'Plain');
+      await userEvent.click(screen.getByRole('button', { name: 'Create session' }));
+
+      expect(await screen.findByText('navigated')).toBeInTheDocument();
+      expect(fetchImpl.mock.calls.some(([url]) => String(url).endsWith('/documents'))).toBe(false);
+    });
   });
 
   it('shows errors from the backend', async () => {
@@ -101,6 +165,7 @@ describe('SessionPage', () => {
 
     expect(await screen.findByText('Acme onsite')).toBeInTheDocument();
     expect(screen.getByLabelText('Add documents')).toHaveAttribute('accept', '.txt,.md,.markdown,.pdf,.docx');
+    expect(screen.getByText('Choose files').tagName).toBe('LABEL');
     expect(screen.getByText(/PDF and Word \.docx/)).toBeInTheDocument();
     await userEvent.upload(screen.getByLabelText('Add documents'), new File(['JD'], 'jd.txt', { type: 'text/plain' }));
     expect(await screen.findByText('jd.txt')).toBeInTheDocument();
@@ -239,7 +304,9 @@ describe('SettingsPage', () => {
     const setOpacity = vi.spyOn(platform, 'setOverlayOpacity');
     renderWithApp(<SettingsPage />, { api, platform });
 
-    expect(await screen.findByRole('option', { name: 'Deepgram (cloud, paid)' })).toBeInTheDocument();
+    const providers = await openSelect(userEvent, 'Speech-to-text provider');
+    expect(await providers.findByRole('option', { name: 'Deepgram (cloud, paid)' })).toBeInTheDocument();
+    await closeSelect(userEvent);
     await userEvent.click(screen.getByRole('button', { name: 'Reset to 85%' }));
     expect(setOpacity).toHaveBeenCalledWith(0.85);
     fireEvent.keyDown(screen.getByRole('slider', { name: 'Overlay opacity' }), { key: 'ArrowLeft' });
@@ -248,7 +315,7 @@ describe('SettingsPage', () => {
     await userEvent.click(screen.getByRole('checkbox'));
     expect((await platform.getSettings()).autoStartOnMeeting).toBe(true);
 
-    await userEvent.selectOptions(screen.getByLabelText('Speech-to-text provider'), 'deepgram');
+    await chooseOption(userEvent, 'Speech-to-text provider', 'Deepgram (cloud, paid)');
     await userEvent.type(await screen.findByLabelText('deepgram API key'), 'dg-key');
     await userEvent.click(screen.getByRole('button', { name: 'Save key' }));
     expect(await screen.findByText('Saving API keys needs the desktop app.')).toBeInTheDocument();
