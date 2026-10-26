@@ -3,6 +3,7 @@ using InterviewCopilot.Application.Auth;
 using InterviewCopilot.Application.Copilot;
 using InterviewCopilot.Application.Documents;
 using InterviewCopilot.Application.Events;
+using InterviewCopilot.Application.Practice;
 using InterviewCopilot.Application.Preferences;
 using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Application.Sessions;
@@ -33,6 +34,10 @@ public static class DependencyInjection
         services.AddScoped<PreferencesService>();
         services.AddSingleton<AutoAnswerService>();
         services.AddSingleton<ITranscriptSegmentListener>(provider => provider.GetRequiredService<AutoAnswerService>());
+
+        services.AddScoped<PracticeService>();
+        services.AddSingleton<PracticeAnswerCollector>();
+        services.AddSingleton<ITranscriptSegmentListener>(provider => provider.GetRequiredService<PracticeAnswerCollector>());
 
         services.AddSingleton<AudioStatsSink>();
         services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<AudioStatsSink>());

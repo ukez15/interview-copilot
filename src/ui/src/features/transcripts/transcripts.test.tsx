@@ -21,6 +21,10 @@ const transcript: Transcript = {
     { createdAt: '2026-10-15T09:10:00Z', question: 'Later question', questionType: 'Situational', version: 2, text: 'Later answer' },
     { createdAt: '2026-10-15T09:05:00Z', question: 'Early question', questionType: 'Behavioral', version: 1, text: 'Early answer' },
   ],
+  attempts: [
+    { id: 'p2', question: 'Second practice?', answerText: 'Second answer', score: 9, feedback: 'Great', createdAt: '2026-10-15T09:30:00Z' },
+    { id: 'p1', question: 'First practice?', answerText: 'First answer', score: 6, feedback: 'Add numbers', createdAt: '2026-10-15T09:20:00Z' },
+  ],
 };
 
 function renderPage(handler: Parameters<typeof fakeApi>[0]) {
@@ -67,7 +71,7 @@ describe('TranscriptPage', () => {
   });
 
   it('shows empty states', async () => {
-    renderPage(() => json({ ...transcript, entries: [], answers: [] }));
+    renderPage(() => json({ ...transcript, entries: [], answers: [], attempts: [] }));
 
     expect(await screen.findByText('No transcript was captured for this session.')).toBeInTheDocument();
     expect(screen.getByText('No suggested answers yet.')).toBeInTheDocument();
@@ -112,6 +116,28 @@ describe('TranscriptPage', () => {
 
     await screen.findByText('Line 999');
     expect(within(screen.getByRole('list', { name: 'Transcript' })).getAllByRole('listitem')).toHaveLength(1000);
+  });
+});
+
+describe('TranscriptPage practice', () => {
+  it('lists practice attempts in order with score, answer and feedback', async () => {
+    renderPage(() => json(transcript));
+
+    const items = within(await screen.findByRole('list', { name: 'Practice' })).getAllByRole('listitem');
+
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent('First practice?');
+    expect(items[0]).toHaveTextContent('Score 6/10');
+    expect(items[0]).toHaveTextContent('First answer');
+    expect(items[0]).toHaveTextContent('Add numbers');
+    expect(items[1]).toHaveTextContent('Second practice?');
+  });
+
+  it('hides the practice section when there are no attempts', async () => {
+    renderPage(() => json({ ...transcript, attempts: [] }));
+    await screen.findByRole('list', { name: 'Transcript' });
+
+    expect(screen.queryByRole('list', { name: 'Practice' })).not.toBeInTheDocument();
   });
 });
 

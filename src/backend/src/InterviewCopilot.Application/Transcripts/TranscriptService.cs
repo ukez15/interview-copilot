@@ -1,4 +1,5 @@
 using InterviewCopilot.Application.Common.Interfaces;
+using InterviewCopilot.Application.Practice;
 using InterviewCopilot.Application.Sessions;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
@@ -15,7 +16,8 @@ public sealed record TranscriptDto(
     SessionMode Mode,
     DateTimeOffset CreatedAt,
     IReadOnlyList<TranscriptEntryDto> Entries,
-    IReadOnlyList<AnswerEntryDto> Answers);
+    IReadOnlyList<AnswerEntryDto> Answers,
+    IReadOnlyList<PracticeAttemptDto> Attempts);
 
 /// <summary>Renders a transcript, including suggested answers, as a PDF (FR-14).</summary>
 public interface IPdfExporter
@@ -24,14 +26,19 @@ public interface IPdfExporter
 }
 
 /// <summary>Saved transcripts and export (FR-13, FR-14).</summary>
-public sealed class TranscriptService(SessionService sessions, ITranscriptRepository transcripts, IPdfExporter pdf)
+public sealed class TranscriptService(
+    SessionService sessions,
+    ITranscriptRepository transcripts,
+    IPracticeAttemptRepository practice,
+    IPdfExporter pdf)
 {
     public async Task<TranscriptDto> GetAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)
     {
         var session = await sessions.LoadOwnedAsync(ownerId, sessionId, cancellationToken);
         var segments = await transcripts.GetSegmentsAsync(sessionId, cancellationToken);
         var answers = await transcripts.GetAnswersAsync(sessionId, cancellationToken);
-        return ToDto(session, segments, answers);
+        var attempts = await practice.ListAsync(sessionId, cancellationToken);
+        return ToDto(session, segments, answers, attempts);
     }
 
     public async Task<(string FileName, byte[] Content)> ExportPdfAsync(
@@ -57,12 +64,14 @@ public sealed class TranscriptService(SessionService sessions, ITranscriptReposi
     private static TranscriptDto ToDto(
         Session session,
         IReadOnlyList<TranscriptSegment> segments,
-        IReadOnlyList<SuggestedAnswer> answers) =>
+        IReadOnlyList<SuggestedAnswer> answers,
+        IReadOnlyList<PracticeAttempt> attempts) =>
         new(
             session.Id,
             session.Title,
             session.Mode,
             session.CreatedAt,
             [.. segments.OrderBy(s => s.StartMs).Select(s => new TranscriptEntryDto(s.StartMs, s.Speaker, s.Text))],
-            [.. answers.OrderBy(a => a.CreatedAt).Select(a => new AnswerEntryDto(a.CreatedAt, a.Question, a.QuestionType, a.Version, a.Text))]);
+            [.. answers.OrderBy(a => a.CreatedAt).Select(a => new AnswerEntryDto(a.CreatedAt, a.Question, a.QuestionType, a.Version, a.Text))],
+            [.. attempts.OrderBy(a => a.CreatedAt).Select(PracticeAttemptDto.From)]);
 }

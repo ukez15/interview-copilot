@@ -18,7 +18,7 @@ internal sealed class FixedClock(DateTimeOffset now) : TimeProvider
     public override DateTimeOffset GetUtcNow() => now;
 }
 
-internal sealed class InMemoryStore : ISessionRepository, IUserAccountRepository, ITranscriptRepository, IUnitOfWork
+internal sealed class InMemoryStore : ISessionRepository, IUserAccountRepository, ITranscriptRepository, IPracticeAttemptRepository, IUnitOfWork
 {
     public List<Session> Sessions { get; } = [];
 
@@ -27,6 +27,8 @@ internal sealed class InMemoryStore : ISessionRepository, IUserAccountRepository
     public List<TranscriptSegment> Segments { get; } = [];
 
     public List<SuggestedAnswer> Answers { get; } = [];
+
+    public List<PracticeAttempt> Attempts { get; } = [];
 
     public int SaveCount { get; private set; }
 
@@ -52,6 +54,11 @@ internal sealed class InMemoryStore : ISessionRepository, IUserAccountRepository
     public void AddSegment(TranscriptSegment segment) => Segments.Add(segment);
 
     public void AddAnswer(SuggestedAnswer answer) => Answers.Add(answer);
+
+    public Task<IReadOnlyList<PracticeAttempt>> ListAsync(Guid sessionId, CancellationToken cancellationToken) =>
+        Task.FromResult<IReadOnlyList<PracticeAttempt>>([.. Attempts.Where(a => a.SessionId == sessionId).OrderBy(a => a.CreatedAt)]);
+
+    public void Add(PracticeAttempt attempt) => Attempts.Add(attempt);
 
     public Task SaveChangesAsync(CancellationToken cancellationToken)
     {

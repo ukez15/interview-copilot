@@ -61,6 +61,30 @@ internal sealed class QuestPdfTranscriptExporter : IPdfExporter
                         block.Item().Text(answer.Text);
                     });
                 }
+
+                if (transcript.Attempts.Count > 0)
+                {
+                    column.Item().PaddingTop(12).Text("Practice").FontSize(13).SemiBold();
+                    foreach (var attempt in transcript.Attempts)
+                    {
+                        column.Item().Background(Colors.Grey.Lighten4).Padding(8).Column(block =>
+                        {
+                            block.Item().Text(attempt.Question).SemiBold();
+                            block.Item().Text(string.Create(CultureInfo.InvariantCulture, $"Score {attempt.Score}/10"))
+                                .FontSize(8).FontColor(Colors.Grey.Darken1);
+                            block.Item().Text(text =>
+                            {
+                                text.Span("Answer: ").SemiBold();
+                                text.Span(attempt.AnswerText);
+                            });
+                            block.Item().Text(text =>
+                            {
+                                text.Span("Feedback: ").SemiBold();
+                                text.Span(attempt.Feedback);
+                            });
+                        });
+                    }
+                }
             });
 
             page.Footer().AlignCenter().Text(text =>
