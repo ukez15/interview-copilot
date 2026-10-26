@@ -172,3 +172,17 @@ export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   TellMeAboutYourself: 'Tell me about yourself',
   Experience: 'Experience',
 };
+
+/** A one-time code the extension enters to pair with this account (#33); valid for a few minutes. */
+export interface PairingCode {
+  code: string;
+  expiresAt: string;
+}
+
+/** A browser extension paired with this account; revoking it makes its token stop working. */
+export interface PairedBrowser {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}

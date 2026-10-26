@@ -3,6 +3,7 @@ using InterviewCopilot.Application.Auth;
 using InterviewCopilot.Application.Copilot;
 using InterviewCopilot.Application.Documents;
 using InterviewCopilot.Application.Events;
+using InterviewCopilot.Application.Pairing;
 using InterviewCopilot.Application.Practice;
 using InterviewCopilot.Application.Preferences;
 using InterviewCopilot.Application.Providers;
@@ -29,6 +30,8 @@ public static class DependencyInjection
         services.AddScoped<SessionService>();
         services.AddScoped<DocumentService>();
         services.AddScoped<AccountService>();
+        services.AddSingleton<PairingCodeStore>();
+        services.AddScoped<PairingService>();
         services.AddScoped<TranscriptService>();
         services.AddScoped<AnswerGenerator>();
         services.AddScoped<PreferencesService>();

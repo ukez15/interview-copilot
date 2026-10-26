@@ -1,11 +1,14 @@
 using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
 using InterviewCopilot.Api.Endpoints;
 using InterviewCopilot.Api.Infrastructure;
 using InterviewCopilot.Application;
 using InterviewCopilot.Application.Events;
 using InterviewCopilot.Infrastructure;
 using InterviewCopilot.Infrastructure.Persistence;
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.BearerToken;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,8 +31,27 @@ builder.Services.AddAuthentication(BearerTokenDefaults.AuthenticationScheme).Add
         }
 
         return Task.CompletedTask;
-    });
-builder.Services.AddAuthorization();
+    })
+    .AddScheme<AuthenticationSchemeOptions, PairingTokenHandler>(PairingTokenDefaults.Scheme, configureOptions: null);
+builder.Services.AddAuthorizationBuilder()
+    // Bearer only by default, so a pairing token is rejected everywhere that doesn't opt in (#33).
+    .SetDefaultPolicy(new AuthorizationPolicyBuilder(BearerTokenDefaults.AuthenticationScheme).RequireAuthenticatedUser().Build())
+    .AddPolicy(Policies.ExtensionScope, policy => policy
+        .AddAuthenticationSchemes(BearerTokenDefaults.AuthenticationScheme, PairingTokenDefaults.Scheme)
+        .RequireAuthenticatedUser());
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(PairingEndpoints.ClaimRateLimitPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = PairingEndpoints.ClaimsPerMinute,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
+});
 // Enums travel as names ("LiveInterview", "Star") so the UI and extension stay readable.
 builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
@@ -51,6 +73,7 @@ await using (var scope = app.Services.CreateAsyncScope())
 
 app.UseExceptionHandler();
 app.UseCors();
+app.UseRateLimiter();
 app.UseWebSockets();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -62,6 +85,7 @@ if (app.Environment.IsDevelopment())
 
 app.MapDefaultEndpoints();
 app.MapAuthEndpoints();
+app.MapPairingEndpoints();
 app.MapProviderEndpoints();
 app.MapStorageEndpoints();
 app.MapPreferencesEndpoints();

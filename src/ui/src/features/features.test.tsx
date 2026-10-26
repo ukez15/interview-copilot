@@ -223,7 +223,9 @@ describe('LiveAssistant and AnswerCard', () => {
 describe('SettingsPage', () => {
   it('changes opacity and auto-start, and saves a BYOK key when a provider needs one', async () => {
     const { api } = fakeApi((url, init) =>
-      !url.endsWith('/api/providers')
+      url.endsWith('/api/pairing/browsers')
+        ? json([])
+        : !url.endsWith('/api/providers')
         ? json(url.endsWith('/models') ? [] : { llmModel: null, speechToTextProvider: init.method === 'PUT' ? 'deepgram' : null })
         : json({
         speechToText: [
@@ -256,7 +258,9 @@ describe('SettingsPage', () => {
     const platform = createWebPlatform();
     vi.spyOn(platform, 'setApiKey').mockResolvedValue();
     const { api } = fakeApi((url) =>
-      !url.endsWith('/api/providers')
+      url.endsWith('/api/pairing/browsers')
+        ? json([])
+        : !url.endsWith('/api/providers')
         ? json(url.endsWith('/models') ? [] : { llmModel: null })
         : json({
             speechToText: [
@@ -272,7 +276,7 @@ describe('SettingsPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save key' }));
     await waitFor(() => expect(platform.setApiKey).toHaveBeenCalledWith('deepgram', 'k'));
 
-    const failing = fakeApi((url) => (url.endsWith('/api/providers') ? json({ detail: 'No providers' }, 500) : json(url.endsWith('/models') ? [] : { llmModel: null })));
+    const failing = fakeApi((url) => (url.endsWith('/api/pairing/browsers') ? json([]) : url.endsWith('/api/providers') ? json({ detail: 'No providers' }, 500) : json(url.endsWith('/models') ? [] : { llmModel: null })));
     renderWithApp(<SettingsPage />, { api: failing.api });
     expect((await screen.findAllByText('No providers')).length).toBeGreaterThan(0);
   });
@@ -294,6 +298,7 @@ describe('Sign-in persistence', () => {
     // Settings also renders the model picker (#31) and speech-model card (#19): answer each endpoint properly.
     const { api } = fakeApi((url) => {
       if (url.endsWith('/api/providers/ollama/models')) return json([]);
+      if (url.endsWith('/api/pairing/browsers')) return json([]);
       if (url.endsWith('/api/preferences')) return json({ llmModel: null, defaultLlmModel: 'llama3.2:3b' });
       if (url.endsWith('/api/providers/whisper/model')) {
         return json({ state: 'ready', model: 'ggml-small.en.bin', bytesDownloaded: 0, totalBytes: null, message: null });

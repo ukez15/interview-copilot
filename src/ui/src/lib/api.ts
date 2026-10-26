@@ -6,6 +6,8 @@ import type {
   CloudModel,
   DocumentSummary,
   OllamaModel,
+  PairedBrowser,
+  PairingCode,
   Preferences,
   Providers,
   Session,
@@ -204,6 +206,19 @@ export class ApiClient {
       method: 'PUT',
       body: JSON.stringify({ key }),
     });
+  }
+
+  /** #33: a single-use code to type into the extension popup. */
+  createPairingCode(): Promise<PairingCode> {
+    return this.json('/api/pairing/codes', { method: 'POST' });
+  }
+
+  listPairedBrowsers(): Promise<PairedBrowser[]> {
+    return this.json('/api/pairing/browsers');
+  }
+
+  async revokePairedBrowser(id: string): Promise<void> {
+    await this.send(`/api/pairing/browsers/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
   transcriptPdfUrl(sessionId: string): string {
