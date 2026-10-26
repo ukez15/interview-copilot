@@ -333,7 +333,7 @@ public class VoiceActivityBufferTests
         }
 
         segment.Should().NotBeNull();
-        segment!.StartMs.Should().Be(1_000);
+        segment.StartMs.Should().Be(1_000);
         segment.EndMs.Should().Be(1_400);
         buffer.HasSpeech.Should().BeFalse();
     }
