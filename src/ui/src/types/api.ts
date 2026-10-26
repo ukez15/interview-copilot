@@ -138,6 +138,12 @@ export interface OllamaModel {
   modifiedAt: string;
 }
 
+/** A model a cloud provider offers to the user's key (#30). */
+export interface CloudModel {
+  id: string;
+  displayName: string;
+}
+
 export interface Preferences {
   /** Chosen Ollama model; null means the backend's configured default. */
   llmModel: string | null;

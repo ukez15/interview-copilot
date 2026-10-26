@@ -63,8 +63,32 @@ public static class DependencyInjection
             http.Timeout = TimeSpan.FromSeconds(5);
         });
 
+        AddCloudLlm<AnthropicLlmProvider, AnthropicModelCatalog>(services, o => o.Anthropic.BaseUrl);
+        AddCloudLlm<OpenAiLlmProvider, OpenAiModelCatalog>(services, o => o.OpenAi.BaseUrl);
+        AddCloudLlm<GoogleLlmProvider, GoogleModelCatalog>(services, o => o.Google.BaseUrl);
+
         AddSpeechToText(services, configuration);
         return services;
+    }
+
+    /// <summary>BYOK chat provider (answers stream, so no client timeout) plus its model lister (10 s).</summary>
+    private static void AddCloudLlm<TProvider, TCatalog>(IServiceCollection services, Func<LlmOptions, Uri> baseUrl)
+        where TProvider : class, ILlmProvider
+        where TCatalog : class, ICloudModelCatalog
+    {
+        services.AddHttpClient<TProvider>((provider, http) =>
+        {
+            http.BaseAddress = baseUrl(provider.GetRequiredService<IOptions<LlmOptions>>().Value);
+            http.Timeout = Timeout.InfiniteTimeSpan; // streaming; cancellation comes from the request
+        });
+        services.AddTransient<ILlmProvider>(provider => provider.GetRequiredService<TProvider>());
+
+        services.AddHttpClient<TCatalog>((provider, http) =>
+        {
+            http.BaseAddress = baseUrl(provider.GetRequiredService<IOptions<LlmOptions>>().Value);
+            http.Timeout = TimeSpan.FromSeconds(10);
+        });
+        services.AddTransient<ICloudModelCatalog>(provider => provider.GetRequiredService<TCatalog>());
     }
 
     private static void AddSpeechToText(IServiceCollection services, IConfiguration configuration)
