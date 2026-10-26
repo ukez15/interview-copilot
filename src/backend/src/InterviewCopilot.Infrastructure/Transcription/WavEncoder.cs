@@ -2,7 +2,7 @@ using System.Buffers.Binary;
 
 namespace InterviewCopilot.Infrastructure.Transcription;
 
-/// <summary>Wraps raw PCM16 mono audio in a WAV header, which Whisper and Deepgram both accept.</summary>
+/// <summary>Wraps raw PCM16 mono audio in a WAV header, which Whisper accepts.</summary>
 internal static class WavEncoder
 {
     private const int HeaderSize = 44;
