@@ -110,9 +110,10 @@ describe('TranscriptPage', () => {
     }));
     renderPage(() => json({ ...transcript, entries }));
 
-    await screen.findByText('Line 999');
-    expect(within(screen.getByRole('list', { name: 'Transcript' })).getAllByRole('listitem')).toHaveLength(1000);
-  });
+    await screen.findByText('Line 999', undefined, { timeout: 10_000 });
+    // Role queries over 1,000 nodes are slow in jsdom (this timed out under load); count the items directly.
+    expect(screen.getByRole('list', { name: 'Transcript' }).querySelectorAll(':scope > li')).toHaveLength(1000);
+  }, 20_000);
 });
 
 describe('transcript links', () => {

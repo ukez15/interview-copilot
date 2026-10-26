@@ -5,7 +5,7 @@ import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { Input, Label } from '@/components/ui/form';
 import { Slider } from '@/components/ui/slider';
 import { MicrophonePicker } from '@/features/audio/MicrophonePicker';
-import { ModelPicker } from '@/features/settings/ModelPicker';
+import { AiModelCard } from '@/features/settings/AiModelCard';
 import { SignOutCard } from '@/features/settings/SignOutCard';
 import { PairedBrowsersCard } from './PairedBrowsersCard';
 import { PrivacyCard } from './PrivacyCard';
@@ -88,7 +88,7 @@ export function SettingsPage() {
       <PairedBrowsersCard />
       <PrivacyCard />
       <SpeechModelCard />
-      <ModelPicker />
+      <AiModelCard />
 
       <Card className="grid gap-4">
         <CardTitle>Providers</CardTitle>
@@ -100,7 +100,7 @@ export function SettingsPage() {
         {providers && (
           <>
             <ProviderList title="Speech-to-text" providers={providers.speechToText} />
-            <ProviderList title="AI model" providers={providers.llm} />
+            <ProviderList title="AI model" providers={providers.llm} keys={false} />
           </>
         )}
       </Card>
@@ -110,7 +110,8 @@ export function SettingsPage() {
   );
 }
 
-function ProviderList({ title, providers }: { title: string; providers: ProviderInfo[] }) {
+/** `keys` is false for the chat providers: their key lives in the AI provider card above. */
+function ProviderList({ title, providers, keys = true }: { title: string; providers: ProviderInfo[]; keys?: boolean }) {
   return (
     <section className="grid gap-2">
       <h3 className="font-medium">{title}</h3>
@@ -119,7 +120,7 @@ function ProviderList({ title, providers }: { title: string; providers: Provider
           <div className="text-sm">
             {provider.displayName} {provider.isDefault && <span className="text-muted-foreground">(default)</span>}
           </div>
-          {provider.requiresApiKey && <ApiKeyField provider={provider.name} />}
+          {keys && provider.requiresApiKey && <ApiKeyField provider={provider.name} />}
         </div>
       ))}
     </section>

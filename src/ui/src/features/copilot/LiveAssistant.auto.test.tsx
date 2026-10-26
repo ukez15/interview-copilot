@@ -147,7 +147,8 @@ describe('LiveAssistant automatic answers', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Answer it' }));
 
     expect(await screen.findByText('Manual.')).toBeInTheDocument();
-    expect(JSON.parse(String(fetchImpl.mock.calls[0]![1]!.body))).toMatchObject({ question: 'Walk me through your resume.' });
+    const ask = fetchImpl.mock.calls.find((call) => call[1]?.method === 'POST')!;
+    expect(JSON.parse(String(ask[1]!.body))).toMatchObject({ question: 'Walk me through your resume.' });
     expect(screen.queryByRole('button', { name: 'Answer it' })).not.toBeInTheDocument();
   });
 });
