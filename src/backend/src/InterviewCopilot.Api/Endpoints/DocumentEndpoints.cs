@@ -4,6 +4,8 @@ using InterviewCopilot.Application.Documents;
 
 namespace InterviewCopilot.Api.Endpoints;
 
+public sealed record JobPostingLinkRequest(string Url);
+
 internal static class DocumentEndpoints
 {
     public static void MapDocumentEndpoints(this IEndpointRouteBuilder app)
@@ -19,6 +21,16 @@ internal static class DocumentEndpoints
         })
         .DisableAntiforgery();
 
+        // Fetches the page and returns the job description for the user to edit. Nothing is stored here: the UI
+        // saves the (edited) text through the upload endpoint above.
+        group.MapPost("/from-link/preview", async (
+            Guid sessionId,
+            JobPostingLinkRequest request,
+            ClaimsPrincipal user,
+            JobPostingImportService import,
+            CancellationToken ct) =>
+            TypedResults.Ok(await import.PreviewAsync(user.UserId(), sessionId, request.Url, ct)));
+
         group.MapDelete("/{documentId:guid}", async (
             Guid sessionId,
             Guid documentId,
@@ -29,5 +41,11 @@ internal static class DocumentEndpoints
             await documents.RemoveAsync(user.UserId(), sessionId, documentId, ct);
             return TypedResults.NoContent();
         });
+
+        // The create-session form has no session yet, so it previews a pasted job link here. Same result and errors
+        // as the session-scoped preview above, minus the document-limit check.
+        app.MapGroup("/api/documents").WithTags("Documents").RequireAuthorization()
+            .MapPost("/from-link/preview", async (JobPostingLinkRequest request, JobPostingImportService import, CancellationToken ct) =>
+                TypedResults.Ok(await import.PreviewAsync(request.Url, ct)));
     }
 }

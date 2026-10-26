@@ -46,6 +46,50 @@ public class ServiceTests
     }
 
     [Fact]
+    public async Task Should_CopySettingsAndAllDocuments_When_CopyFromSessionIdIsSet()
+    {
+        var source = await CreateAsync();
+        await _sessions.SetAutoAnswerAsync(Owner, source.Id, false, Ct);
+        var stored = _store.Sessions.Single(s => s.Id == source.Id);
+        for (var i = 0; i < 10; i++)
+        {
+            stored.AttachDocument($"doc{i}.txt", $"text {i}", _clock.GetUtcNow());
+        }
+
+        var copy = await _sessions.CreateAsync(
+            new CreateSessionCommand(Owner, "Zoom meeting", SessionMode.Conversation, AnswerLength.Short, AnswerFramework.None, null, "ignored", source.Id),
+            Ct);
+
+        copy.Id.Should().NotBe(source.Id);
+        copy.Title.Should().Be("Zoom meeting");
+        copy.Status.Should().Be(SessionStatus.Draft);
+        copy.Mode.Should().Be(SessionMode.LiveInterview);
+        copy.AnswerLength.Should().Be(AnswerLength.Long);
+        copy.Framework.Should().Be(AnswerFramework.Star);
+        copy.PinnedQuestionType.Should().Be(QuestionType.Coding);
+        copy.SessionPrompt.Should().Be("Be concise");
+        copy.AutoAnswer.Should().BeFalse();
+        copy.Documents.Should().HaveCount(10);
+        copy.Documents.Select(d => d.FileName).Should().BeEquivalentTo(Enumerable.Range(0, 10).Select(i => $"doc{i}.txt"));
+        var copied = _store.Sessions.Single(s => s.Id == copy.Id);
+        copied.Documents.Select(d => d.Content).Should().BeEquivalentTo(stored.Documents.Select(d => d.Content));
+        copied.Documents.Select(d => d.Id).Should().NotIntersectWith(stored.Documents.Select(d => d.Id));
+    }
+
+    [Fact]
+    public async Task Should_NotFind_When_CopySourceBelongsToSomeoneElse()
+    {
+        var source = await CreateAsync();
+
+        var act = () => _sessions.CreateAsync(
+            new CreateSessionCommand(Guid.NewGuid(), "Zoom meeting", SessionMode.LiveInterview, AnswerLength.Short, AnswerFramework.None, null, null, source.Id),
+            Ct);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+        _store.Sessions.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task Should_HideOtherUsersSessions()
     {
         var created = await CreateAsync();
@@ -117,14 +161,16 @@ public class ServiceTests
         _store.AddSegment(TranscriptSegment.Create(created.Id, Speaker.Candidate, 2000, 3000, "Second"));
         _store.AddSegment(TranscriptSegment.Create(created.Id, Speaker.Interviewer, 0, 1000, "First?"));
         _store.AddAnswer(SuggestedAnswer.Create(created.Id, "First?", QuestionType.Experience, "Answer", 1, AnswerModifier.None, _clock.GetUtcNow()));
+        _store.Add(PracticeAttempt.Create(created.Id, "Why?", "Because", 7, "Good", _clock.GetUtcNow()));
         var exporter = new CapturingPdfExporter();
-        var transcripts = new TranscriptService(_sessions, _store, exporter);
+        var transcripts = new TranscriptService(_sessions, _store, _store, exporter);
 
         var transcript = await transcripts.GetAsync(Owner, created.Id, Ct);
         var (fileName, content) = await transcripts.ExportPdfAsync(Owner, created.Id, Ct);
 
         transcript.Entries.Select(e => e.Text).Should().Equal("First?", "Second");
         transcript.Answers.Should().ContainSingle();
+        transcript.Attempts.Should().ContainSingle().Which.Score.Should().Be(7);
         fileName.Should().Be("Acme-2026-10-15.pdf");
         content.Should().Equal(1, 2, 3);
     }
@@ -132,7 +178,7 @@ public class ServiceTests
     [Fact]
     public void Should_FallBackToGenericFileName_When_TitleHasNoLetters()
     {
-        var dto = new TranscriptDto(Guid.NewGuid(), "!!!", SessionMode.Conversation, FixedClock.Default, [], []);
+        var dto = new TranscriptDto(Guid.NewGuid(), "!!!", SessionMode.Conversation, FixedClock.Default, [], [], []);
 
         TranscriptService.FileNameFor(dto).Should().Be("transcript-2026-10-15.pdf");
     }

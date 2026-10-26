@@ -4,10 +4,21 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
-import { BackendProcess, MAX_RESTARTS, packagedBackendPath, waitForHealthy } from './backend-process';
-import { IpcChannels } from './ipc-channels';
+import { BackendProcess, ensureBackend, isHealthy, MAX_RESTARTS, packagedBackendPath, waitForHealthy } from './backend-process';
+import { IpcChannels, IpcEvents } from './ipc-channels';
 import { KeyStore, type SecretCipher } from './key-store';
-import { decide, detectMeetingApp, normalizeProcessName, parsePs, parseTasklist } from './meeting-detection';
+import {
+  currentMeeting,
+  decide,
+  detectActiveMeeting,
+  detectMeetingApp,
+  meetingAppForConsentKey,
+  meetingEventFor,
+  normalizeProcessName,
+  parseConsentStore,
+  parsePs,
+  parseTasklist,
+} from './meeting-detection';
 import { clampOpacity, DEFAULT_SETTINGS, sanitize, SettingsStore } from './settings-store';
 
 const tempDir = () => mkdtemp(path.join(tmpdir(), 'ic-desktop-'));
@@ -99,6 +110,81 @@ describe('meeting detection', () => {
     ]);
   });
 
+  // Trimmed `reg query ...\ConsentStore\microphone /s` output, as captured on Windows 11.
+  const consentStore = (teamsStop: string, zoomStop: string): string =>
+    [
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone',
+      '    Value    REG_SZ    Allow',
+      '',
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\MSTeams_8wekyb3d8bbwe',
+      '    Value    REG_SZ    Allow',
+      '    LastUsedTimeStart    REG_QWORD    0x1dd4ad266ed738d',
+      `    LastUsedTimeStop    REG_QWORD    ${teamsStop}`,
+      '',
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\Microsoft.WindowsCamera_8wekyb3d8bbwe',
+      '    Value    REG_SZ    Allow',
+      '',
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\NonPackaged',
+      '',
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\NonPackaged\\C:#Users#me#AppData#Roaming#Zoom#bin#Zoom.exe',
+      '    LastUsedTimeStart    REG_QWORD    0x1dd5381a205fe4c',
+      `    LastUsedTimeStop    REG_QWORD    ${zoomStop}`,
+      '',
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\NonPackaged\\C:#Users#me#AppData#Local#Programs#interview-copilot#InterviewCopilot.exe',
+      '    LastUsedTimeStart    REG_QWORD    0x1dd5381a205fe4c',
+      '    LastUsedTimeStop    REG_QWORD    0x0',
+      '',
+    ].join('\r\n');
+
+  it('parses which apps hold the microphone from the consent store', () => {
+    expect(parseConsentStore(consentStore('0x0', '0x1dd5381dd2f75e3'))).toEqual([
+      { key: 'MSTeams_8wekyb3d8bbwe', inUse: true },
+      { key: 'C:#Users#me#AppData#Roaming#Zoom#bin#Zoom.exe', inUse: false },
+      { key: 'C:#Users#me#AppData#Local#Programs#interview-copilot#InterviewCopilot.exe', inUse: true },
+    ]);
+    expect(parseConsentStore('')).toEqual([]);
+  });
+
+  it('maps consent store keys to meeting apps', () => {
+    expect(meetingAppForConsentKey('MSTeams_8wekyb3d8bbwe')).toBe('Microsoft Teams');
+    expect(meetingAppForConsentKey('C:#Program Files#Slack#slack.exe')).toBe('Slack');
+    expect(meetingAppForConsentKey('C:#Program Files#Google#Chrome#Application#chrome.exe')).toBeNull();
+    expect(meetingAppForConsentKey('Claude_pzs8sxrjxfjjc')).toBeNull();
+  });
+
+  it('reports a meeting only while its app holds the mic and is running', () => {
+    const running = ['explorer.exe', 'ms-teams.exe', 'Zoom.exe'];
+    expect(detectActiveMeeting(running, consentStore('0x0', '0x1dd5381dd2f75e3'))).toBe('Microsoft Teams');
+    expect(detectActiveMeeting(running, consentStore('0x1dd4ad281fbb0c1', '0x0'))).toBe('Zoom');
+    // Teams open in the background, no call: the beta's false prompt.
+    expect(detectActiveMeeting(running, consentStore('0x1dd4ad281fbb0c1', '0x1dd5381dd2f75e3'))).toBeNull();
+    // Stale "in use" left behind by a crash: the process is gone.
+    expect(detectActiveMeeting(['explorer.exe'], consentStore('0x0', '0x0'))).toBeNull();
+    // Our own capture holds the mic, but isn't a meeting app.
+    expect(detectActiveMeeting(['InterviewCopilot.exe'], consentStore('0x1', '0x1'))).toBeNull();
+  });
+
+  it('uses the mic signal on Windows and the process list elsewhere', async () => {
+    const run = vi.fn(async (command: string) =>
+      command === 'tasklist' ? '"ms-teams.exe","1"\r\n' : consentStore('0x0', '0x1'),
+    );
+    expect(await currentMeeting('win32', run)).toBe('Microsoft Teams');
+    expect(run).toHaveBeenCalledWith('reg', ['query', expect.stringContaining('ConsentStore\\microphone'), '/s']);
+
+    const macRun = vi.fn(async () => '/Applications/zoom.us.app/Contents/MacOS/zoom.us\n');
+    expect(await currentMeeting('darwin', macRun)).toBe('Zoom');
+    expect(macRun).toHaveBeenCalledWith('ps', ['-axo', 'comm=']);
+  });
+
+  it('prompts for nothing when the consent store or process list cannot be read', async () => {
+    const regFails = async (command: string) => {
+      if (command === 'reg') throw new Error('access denied');
+      return '"ms-teams.exe","1"\r\n';
+    };
+    expect(await currentMeeting('win32', regFails)).toBeNull();
+    expect(await currentMeeting('darwin', async () => Promise.reject(new Error('ps missing')))).toBeNull();
+  });
+
   it('asks first, starts only when auto-start is on, and never repeats for the same meeting', () => {
     expect(decide(null, 'Zoom', false)).toBe('ask');
     expect(decide(null, 'Zoom', true)).toBe('start');
@@ -114,6 +200,31 @@ describe('preload bridge', () => {
 
     expect(used).toEqual(Object.values(IpcChannels).sort());
   });
+
+  it('listens to exactly the events the main process sends', async () => {
+    const source = await readFile(path.join(import.meta.dirname, 'preload.ts'), 'utf8');
+    const listened = [...source.matchAll(/ipcRenderer\.on\('([^']+)'/g)].map((m) => m[1]).sort();
+
+    expect(listened).toEqual(Object.values(IpcEvents).sort());
+  });
+});
+
+describe('meeting event', () => {
+  it('tells the renderer to show the picker after the user accepted the prompt', () => {
+    expect(meetingEventFor('ask', 'Zoom', true)).toEqual({ app: 'Zoom', autoStart: false });
+  });
+
+  it('sends nothing when the user declined the prompt', () => {
+    expect(meetingEventFor('ask', 'Zoom', false)).toBeNull();
+  });
+
+  it('asks the renderer to start straight away only when auto-start decided so', () => {
+    expect(meetingEventFor('start', 'Webex', false)).toEqual({ app: 'Webex', autoStart: true });
+  });
+
+  it('sends nothing for an ignored meeting', () => {
+    expect(meetingEventFor('ignore', 'Zoom', true)).toBeNull();
+  });
 });
 
 describe('backend process', () => {
@@ -127,6 +238,35 @@ describe('backend process', () => {
 
     expect(await waitForHealthy(fetchImpl, 10_000, 1, Date.now, () => Promise.resolve())).toBe(true);
     expect(fetchImpl).toHaveBeenCalledWith('http://127.0.0.1:5480/health');
+  });
+
+  it('probes /health once and treats errors and non-OK answers as down', async () => {
+    expect(await isHealthy(() => Promise.resolve({ ok: true }))).toBe(true);
+    expect(await isHealthy(() => Promise.resolve({ ok: false }))).toBe(false);
+    expect(await isHealthy(() => Promise.reject(new Error('refused')))).toBe(false);
+  });
+
+  it('reuses a backend that is already healthy instead of spawning a second one (#36)', async () => {
+    const spawnBackend = vi.fn();
+
+    expect(await ensureBackend({ packaged: true, probe: () => Promise.resolve(true), spawnBackend })).toBe('reused');
+    expect(spawnBackend).not.toHaveBeenCalled();
+  });
+
+  it('spawns the bundled backend when nothing answers on the port', async () => {
+    const spawnBackend = vi.fn();
+
+    expect(await ensureBackend({ packaged: true, probe: () => Promise.resolve(false), spawnBackend })).toBe('spawned');
+    expect(spawnBackend).toHaveBeenCalledTimes(1);
+  });
+
+  it('never spawns in development, where the backend runs separately', async () => {
+    const spawnBackend = vi.fn();
+    const probe = vi.fn();
+
+    expect(await ensureBackend({ packaged: false, probe, spawnBackend })).toBe('external');
+    expect(spawnBackend).not.toHaveBeenCalled();
+    expect(probe).not.toHaveBeenCalled();
   });
 
   it('gives up after the timeout', async () => {

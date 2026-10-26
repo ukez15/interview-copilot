@@ -3,13 +3,18 @@ import type {
   AnswerHeader,
   AnswerModifier,
   CreateSessionInput,
+  CloudModel,
   DocumentSummary,
+  JobPostingPreview,
   OllamaModel,
+  PairedBrowser,
+  PairingCode,
   Preferences,
   Providers,
   Session,
   StorageInfo,
   SessionSettingsInput,
+  PracticeAttempt,
   Transcript,
   WhisperModel,
 } from '@/types/api';
@@ -119,6 +124,21 @@ export class ApiClient {
     return this.json(`/api/sessions/${id}/transcript`);
   }
 
+  /** #26: asks the next mock-interview question and opens it for the candidate's spoken answer. */
+  async practiceNext(sessionId: string): Promise<string> {
+    const body = await this.json<{ question: string }>(`/api/sessions/${sessionId}/practice/next`, { method: 'POST' });
+    return body.question;
+  }
+
+  /** #26: scores the answer heard since the question was asked and saves the attempt. */
+  practiceFinish(sessionId: string): Promise<PracticeAttempt> {
+    return this.json(`/api/sessions/${sessionId}/practice/finish`, { method: 'POST' });
+  }
+
+  practiceAttempts(sessionId: string): Promise<PracticeAttempt[]> {
+    return this.json(`/api/sessions/${sessionId}/practice/attempts`);
+  }
+
   startSession(id: string): Promise<Session> {
     return this.json(`/api/sessions/${id}/start`, { method: 'POST' });
   }
@@ -131,6 +151,16 @@ export class ApiClient {
     const form = new FormData();
     form.append('file', file);
     return this.json(`/api/sessions/${sessionId}/documents`, { method: 'POST', body: form });
+  }
+
+  /** Reads a job description from a link without saving anything; save it with `uploadDocument`. */
+  previewJobPosting(sessionId: string, url: string): Promise<JobPostingPreview> {
+    return this.json(`/api/sessions/${sessionId}/documents/from-link/preview`, { method: 'POST', body: JSON.stringify({ url }) });
+  }
+
+  /** Same as `previewJobPosting` but with no session yet: used by the create-session form. */
+  previewJobPostingLink(url: string): Promise<JobPostingPreview> {
+    return this.json('/api/documents/from-link/preview', { method: 'POST', body: JSON.stringify({ url }) });
   }
 
   async removeDocument(sessionId: string, documentId: string): Promise<void> {
@@ -158,6 +188,11 @@ export class ApiClient {
     return this.json('/api/providers/ollama/models');
   }
 
+  /** Models a cloud provider offers to this key (#30). The key travels in a header and is never stored by the backend. */
+  cloudModels(provider: string, apiKey: string): Promise<CloudModel[]> {
+    return this.json(`/api/providers/${encodeURIComponent(provider)}/models`, { headers: { 'X-Llm-Api-Key': apiKey } });
+  }
+
   getPreferences(): Promise<Preferences> {
     return this.json('/api/preferences');
   }
@@ -182,6 +217,19 @@ export class ApiClient {
       method: 'PUT',
       body: JSON.stringify({ key }),
     });
+  }
+
+  /** #33: a single-use code to type into the extension popup. */
+  createPairingCode(): Promise<PairingCode> {
+    return this.json('/api/pairing/codes', { method: 'POST' });
+  }
+
+  listPairedBrowsers(): Promise<PairedBrowser[]> {
+    return this.json('/api/pairing/browsers');
+  }
+
+  async revokePairedBrowser(id: string): Promise<void> {
+    await this.send(`/api/pairing/browsers/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
   transcriptPdfUrl(sessionId: string): string {
@@ -248,7 +296,9 @@ export class ApiClient {
 
   private async send(path: string, init: RequestInit = {}): Promise<Response> {
     const response = await this.attempt(path, init);
-    const recoverable = response.status === 401 && this.handlers !== null && !path.startsWith('/api/auth/');
+    // A 401 that explains itself (e.g. "Anthropic rejected the API key.") is not an expired sign-in.
+    const recoverable =
+      response.status === 401 && this.handlers !== null && !path.startsWith('/api/auth/') && !(await hasProblemDetail(response));
     if (!recoverable) {
       return this.checked(response);
     }
@@ -298,8 +348,17 @@ export class ApiClient {
   }
 }
 
+async function hasProblemDetail(response: Response): Promise<boolean> {
+  try {
+    const problem = (await response.clone().json()) as { detail?: unknown };
+    return typeof problem.detail === 'string' && problem.detail.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function problemMessage(response: Response): Promise<string> {
-  if (response.status === 401) {
+  if (response.status === 401 && !(await hasProblemDetail(response))) {
     return 'Please sign in again.';
   }
   try {

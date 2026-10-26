@@ -1,0 +1,22 @@
+[
+  { "type": "Behavioral", "text": "Tell me about a time you had a conflict with a teammate and how you resolved it." },
+  { "type": "Behavioral", "text": "Describe a situation where you missed a deadline. What happened and what did you learn?" },
+  { "type": "Behavioral", "text": "Give an example of a time you had to learn a new technology quickly to deliver a project." },
+  { "type": "HowDoYou", "text": "How do you prioritize your work when everything seems urgent?" },
+  { "type": "HowDoYou", "text": "How do you keep your technical skills up to date?" },
+  { "type": "Situational", "text": "What would you do if you discovered a critical bug in production an hour before a major release?" },
+  { "type": "Situational", "text": "How would you handle a stakeholder who keeps changing the requirements mid-sprint?" },
+  { "type": "TechnicalKnowledge", "text": "What is the difference between a process and a thread, and when would you use each?" },
+  { "type": "TechnicalKnowledge", "text": "Explain how database indexes work and when they can hurt performance." },
+  { "type": "TechnicalKnowledge", "text": "What is the difference between REST and GraphQL, and what are the trade-offs?" },
+  { "type": "SystemDesign", "text": "How would you design a URL shortening service that handles 100 million links?" },
+  { "type": "SystemDesign", "text": "Design a notification system that can send millions of push notifications per hour." },
+  { "type": "Coding", "text": "Write a function that checks whether a string containing brackets is balanced." },
+  { "type": "Coding", "text": "How would you reverse a singly linked list, and what is the time complexity?" },
+  { "type": "Coding", "text": "Given an array of integers, how would you find two numbers that add up to a target value?" },
+  { "type": "TellMeAboutYourself", "text": "Tell me about yourself." },
+  { "type": "TellMeAboutYourself", "text": "Walk me through your background and what brought you to this role." },
+  { "type": "Experience", "text": "What is the most challenging project you have worked on, and what was your role in it?" },
+  { "type": "Experience", "text": "Tell me about your experience working with cloud infrastructure and CI/CD pipelines." },
+  { "type": "Experience", "text": "What experience do you have mentoring junior engineers or leading a small team?" }
+]

@@ -3,6 +3,8 @@ import { createWebPlatform, DEFAULT_SETTINGS, detectPlatform, type DesktopBridge
 
 const status = { state: 'live' as const, interviewer: true, mic: true, message: null };
 
+const unsubscribe = vi.fn();
+
 function fakeBridge(): DesktopBridge {
   return {
     getAuthToken: vi.fn().mockResolvedValue('t'),
@@ -20,6 +22,7 @@ function fakeBridge(): DesktopBridge {
     stopCapture: vi.fn().mockResolvedValue(status),
     getCaptureStatus: vi.fn().mockResolvedValue(status),
     openDataFolder: vi.fn().mockResolvedValue(undefined),
+    onMeetingDetected: vi.fn().mockReturnValue(unsubscribe),
   };
 }
 
@@ -52,6 +55,23 @@ describe('platform', () => {
     expect(bridge.setApiKey).toHaveBeenCalledWith('deepgram', 'k');
     expect(bridge.showOverlay).toHaveBeenCalledWith('s1');
     expect(bridge.setSettings).toHaveBeenCalledWith({ autoStartOnMeeting: true });
+  });
+
+  it('forwards meeting events and the unsubscribe function from the desktop bridge', () => {
+    const bridge = fakeBridge();
+    const platform = detectPlatform({ interviewCopilot: bridge } as unknown as Window);
+    const callback = vi.fn();
+
+    const stop = platform.onMeetingDetected(callback);
+
+    expect(bridge.onMeetingDetected).toHaveBeenCalledWith(callback);
+    expect(stop).toBe(unsubscribe);
+  });
+
+  it('never reports meetings on the web platform', () => {
+    const stop = createWebPlatform().onMeetingDetected(vi.fn());
+
+    expect(stop()).toBeUndefined();
   });
 
   it('falls back to a web platform that never stores API keys', async () => {

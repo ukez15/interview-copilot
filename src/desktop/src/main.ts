@@ -1,14 +1,14 @@
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { app, BrowserWindow, desktopCapturer, dialog, ipcMain, net, protocol, safeStorage, session, shell, webContents, type IpcMainInvokeEvent } from 'electron';
-import { BackendProcess, packagedBackendPath, waitForHealthy } from './backend-process';
+import { BackendProcess, ensureBackend, isHealthy, packagedBackendPath, waitForHealthy } from './backend-process';
 import { refreshAccessToken } from './auth-refresh';
 import { AuthStore } from './auth-store';
 import { CaptureController } from './capture-controller';
 import { openDataFolder } from './data-folder';
-import { APP_HOST, APP_PROTOCOL, BACKEND_URL, CaptureChannels, IpcChannels } from './ipc-channels';
+import { APP_HOST, APP_PROTOCOL, BACKEND_URL, CaptureChannels, IpcChannels, IpcEvents } from './ipc-channels';
 import { KeyStore } from './key-store';
-import { decide, detectMeetingApp, listProcessNames } from './meeting-detection';
+import { currentMeeting, decide, meetingEventFor } from './meeting-detection';
 import { clampOpacity, SettingsStore } from './settings-store';
 import { createCaptureWindow, createMainWindow, createOverlayWindow } from './windows';
 
@@ -153,10 +153,15 @@ function serveUi(): void {
 }
 
 async function startBackend(): Promise<void> {
-  if (app.isPackaged) {
-    backend = new BackendProcess(packagedBackendPath(process.resourcesPath), (message) => dialog.showErrorBox('InterviewCopilot', message));
-    backend.start();
-  }
+  // A backend that already answers is reused and left running on quit, since `backend` stays null (#36).
+  await ensureBackend({
+    packaged: app.isPackaged,
+    probe: () => isHealthy(),
+    spawnBackend: () => {
+      backend = new BackendProcess(packagedBackendPath(process.resourcesPath), (message) => dialog.showErrorBox('InterviewCopilot', message));
+      backend.start();
+    },
+  });
   if (!(await waitForHealthy())) {
     dialog.showErrorBox(
       'InterviewCopilot',
@@ -167,16 +172,17 @@ async function startBackend(): Promise<void> {
   }
 }
 
-/** FR-16: ask before listening when a meeting app starts (unless auto-start is on). */
+/** FR-16: ask before listening when a call starts (unless auto-start is on). */
 function watchForMeetings(): void {
   setInterval(() => {
     void (async () => {
-      const meeting = detectMeetingApp(await listProcessNames().catch(() => []));
+      const meeting = await currentMeeting();
       const decision = decide(lastMeeting, meeting, (await settings.get()).autoStartOnMeeting);
       lastMeeting = meeting;
-      if (decision === 'ignore' || !mainWindow) {
+      if (decision === 'ignore' || !mainWindow || !meeting) {
         return;
       }
+      let accepted = false;
       if (decision === 'ask') {
         const { response } = await dialog.showMessageBox(mainWindow, {
           type: 'question',
@@ -186,12 +192,16 @@ function watchForMeetings(): void {
           message: `${meeting} meeting detected. Start InterviewCopilot?`,
           detail: 'It will listen to the meeting audio on this computer. Make sure transcription is allowed in this conversation.',
         });
-        if (response !== 0) {
-          return;
-        }
+        accepted = response === 0;
+      }
+      const event = meetingEventFor(decision, meeting, accepted);
+      if (!event) {
+        return;
       }
       mainWindow.show();
       mainWindow.focus();
+      // #16: the UI picks or creates the session and starts capture; nothing starts here.
+      mainWindow.webContents.send(IpcEvents.meetingDetected, event);
     })();
   }, MEETING_POLL_MS);
 }

@@ -18,10 +18,21 @@ export function SessionsPage() {
     api.listSessions().then(setSessions, (err: Error) => setError(err.message));
   }, [api]);
 
-  async function create(input: CreateSessionInput) {
+  async function create(input: CreateSessionInput, jobDescription?: File) {
     setBusy(true);
     try {
       const session = await api.createSession(input);
+      if (jobDescription) {
+        try {
+          await api.uploadDocument(session.id, jobDescription);
+        } catch (err) {
+          // The session exists, so stay here with the reason instead of opening it without its job description.
+          const reason = err instanceof Error && err.message ? err.message : 'Upload failed.';
+          setSessions((current) => [session, ...current]);
+          setError(`The session was created, but the job description couldn't be saved: ${reason} Add it from the session's Documents panel.`);
+          return;
+        }
+      }
       navigate(`/sessions/${session.id}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not create the session.');

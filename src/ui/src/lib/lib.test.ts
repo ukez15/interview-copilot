@@ -120,6 +120,8 @@ describe('ApiClient', () => {
     await api.startSession('s1');
     await api.endSession('s1');
     await api.uploadDocument('s1', new File(['x'], 'a.txt'));
+    await api.previewJobPosting('s1', 'https://jobs.test/1');
+    await api.previewJobPostingLink('https://jobs.test/1');
     await api.removeDocument('s1', 'd1');
     await api.providers();
     await api.getStorage();
@@ -135,12 +137,23 @@ describe('ApiClient', () => {
       'POST /api/sessions/s1/start',
       'POST /api/sessions/s1/end',
       'POST /api/sessions/s1/documents',
+      'POST /api/sessions/s1/documents/from-link/preview',
+      'POST /api/documents/from-link/preview',
       'DELETE /api/sessions/s1/documents/d1',
       'GET /api/providers',
       'GET /api/storage',
       'GET /api/sessions/s1/transcript/pdf',
     ]);
     expect(api.transcriptPdfUrl('s1')).toBe('http://api.test/api/sessions/s1/transcript/pdf');
+  });
+
+  it('sends copyFromSessionId when creating a session from another (#16)', async () => {
+    const { api, fetchImpl } = fakeApi(() => json({}));
+
+    await api.createSession({ title: 'Zoom', mode: 'LiveInterview', answerLength: 'Short', framework: 'None', pinnedQuestionType: null, sessionPrompt: '', copyFromSessionId: 's0' });
+
+    expect(fetchImpl.mock.calls[0]![0]).toBe('http://api.test/api/sessions');
+    expect(JSON.parse(String(fetchImpl.mock.calls[0]![1]!.body))).toMatchObject({ title: 'Zoom', copyFromSessionId: 's0' });
   });
 
   it('calls the wave-3 provider and session-key endpoints', async () => {

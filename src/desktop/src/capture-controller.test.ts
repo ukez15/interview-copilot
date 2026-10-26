@@ -27,7 +27,11 @@ function fakeWindow(id: number) {
   return window;
 }
 
-function setup(token: string | null = 'tok') {
+function sessionLookup(mode: string): typeof fetch {
+  return vi.fn(() => Promise.resolve(new Response(JSON.stringify({ id: SESSION, mode }), { status: 200 }))) as unknown as typeof fetch;
+}
+
+function setup(token: string | null = 'tok', fetchImpl: typeof fetch = sessionLookup('LiveInterview')) {
   const windows: ReturnType<typeof fakeWindow>[] = [];
   const controller = new CaptureController({
     createWindow: () => {
@@ -38,6 +42,7 @@ function setup(token: string | null = 'tok') {
     getToken: () => token,
     getMicDeviceId: () => Promise.resolve('usb-headset'),
     backendUrl: 'http://127.0.0.1:5480',
+    fetchImpl,
   });
   return { controller, windows };
 }
@@ -48,10 +53,33 @@ describe('CaptureController', () => {
 
     expect((await controller.start(SESSION)).state).toBe('connecting');
 
-    expect(controller.configFor(10)).toEqual({ sessionId: SESSION, token: 'tok', micDeviceId: 'usb-headset', backendUrl: 'http://127.0.0.1:5480' });
+    expect(controller.configFor(10)).toEqual({ sessionId: SESSION, token: 'tok', micDeviceId: 'usb-headset', backendUrl: 'http://127.0.0.1:5480', micOnly: false });
     expect(() => controller.configFor(99)).toThrow('Not the capture window');
     expect(controller.isCaptureWindow(10)).toBe(true);
     expect(windows).toHaveLength(1);
+  });
+
+  it('captures only the microphone for mock interview sessions, after looking the session up with the token', async () => {
+    const lookup = sessionLookup('MockInterview');
+    const { controller } = setup('tok', lookup);
+
+    await controller.start(SESSION);
+
+    expect(controller.configFor(10).micOnly).toBe(true);
+    expect(lookup).toHaveBeenCalledWith(`http://127.0.0.1:5480/api/sessions/${SESSION}`, { headers: { Authorization: 'Bearer tok' } });
+  });
+
+  it('falls back to normal capture when the session lookup fails', async () => {
+    const failing = vi.fn(() => Promise.reject(new Error('offline'))) as unknown as typeof fetch;
+    const notFound = vi.fn(() => Promise.resolve(new Response('{}', { status: 404 }))) as unknown as typeof fetch;
+
+    const first = setup('tok', failing);
+    await first.controller.start(SESSION);
+    const second = setup('tok', notFound);
+    await second.controller.start(SESSION);
+
+    expect(first.controller.configFor(10).micOnly).toBe(false);
+    expect(second.controller.configFor(10).micOnly).toBe(false);
   });
 
   it('accepts status only from the capture window and sanitizes it', async () => {
@@ -102,7 +130,7 @@ describe('CaptureController', () => {
 
 describe('capture contract helpers', () => {
   it('builds the audio socket URL with an escaped token', () => {
-    expect(audioSocketUrl({ sessionId: SESSION, token: 'a b+c', micDeviceId: null, backendUrl: 'http://127.0.0.1:5480' })).toBe(
+    expect(audioSocketUrl({ sessionId: SESSION, token: 'a b+c', micDeviceId: null, backendUrl: 'http://127.0.0.1:5480', micOnly: false })).toBe(
       `ws://127.0.0.1:5480/ws/sessions/${SESSION}/audio?access_token=a%20b%2Bc`,
     );
   });

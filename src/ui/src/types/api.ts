@@ -28,11 +28,23 @@ export type Speaker = 'Interviewer' | 'Candidate';
 /** FR-02 */
 export const MAX_DOCUMENTS_PER_SESSION = 10;
 
+/** Mirrors SessionLimits.MaxTitleLength in the backend. */
+export const MAX_SESSION_TITLE_LENGTH = 200;
+
 export interface DocumentSummary {
   id: string;
   fileName: string;
   characterCount: number;
   createdAt: string;
+}
+
+export type JobPostingSource = 'JsonLd' | 'Readable';
+
+/** A job description read from a link; nothing is stored until the user saves it as a document. */
+export interface JobPostingPreview {
+  suggestedName: string;
+  text: string;
+  source: JobPostingSource;
 }
 
 export interface Session {
@@ -59,6 +71,8 @@ export interface CreateSessionInput {
   framework: AnswerFramework;
   pinnedQuestionType: QuestionType | null;
   sessionPrompt: string;
+  /** #16: copy mode, answer settings and documents from this session (the other fields except title are ignored). */
+  copyFromSessionId?: string;
 }
 
 /** PUT /api/sessions/{id}/settings (#10). */
@@ -84,6 +98,16 @@ export interface TranscriptAnswer {
   text: string;
 }
 
+/** A scored mock-interview answer (#26). */
+export interface PracticeAttempt {
+  id: string;
+  question: string;
+  answerText: string;
+  score: number;
+  feedback: string;
+  createdAt: string;
+}
+
 export interface Transcript {
   sessionId: string;
   title: string;
@@ -91,6 +115,7 @@ export interface Transcript {
   createdAt: string;
   entries: TranscriptEntry[];
   answers: TranscriptAnswer[];
+  attempts: PracticeAttempt[];
 }
 
 export interface ProviderInfo {
@@ -127,6 +152,12 @@ export interface OllamaModel {
   modifiedAt: string;
 }
 
+/** A model a cloud provider offers to the user's key (#30). */
+export interface CloudModel {
+  id: string;
+  displayName: string;
+}
+
 export interface Preferences {
   /** Chosen Ollama model; null means the backend's configured default. */
   llmModel: string | null;
@@ -155,3 +186,17 @@ export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   TellMeAboutYourself: 'Tell me about yourself',
   Experience: 'Experience',
 };
+
+/** A one-time code the extension enters to pair with this account (#33); valid for a few minutes. */
+export interface PairingCode {
+  code: string;
+  expiresAt: string;
+}
+
+/** A browser extension paired with this account; revoking it makes its token stop working. */
+export interface PairedBrowser {
+  id: string;
+  name: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+}

@@ -3,7 +3,7 @@
 ## 1. Git init and first commit
 
 ```bash
-cd C:/Users/ukez1/Projects/interview-copilot
+cd interview-copilot
 git init -b main
 pipx install pre-commit
 pre-commit install --hook-type pre-commit --hook-type commit-msg --hook-type pre-push

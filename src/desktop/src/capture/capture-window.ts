@@ -79,22 +79,24 @@ async function main(): Promise<void> {
   await context.audioWorklet.addModule('pcm-worklet.js');
   sender.start();
 
-  try {
-    tap(context, await systemAudio(), SPEAKER_INTERVIEWER, sender);
-    report({ interviewer: true });
-  } catch {
-    report({ interviewer: false, message: "Couldn't capture system audio, so the other side of the call won't be transcribed." });
+  if (!config.micOnly) {
+    try {
+      tap(context, await systemAudio(), SPEAKER_INTERVIEWER, sender);
+      report({ interviewer: true });
+    } catch {
+      report({ interviewer: false, message: "Couldn't capture system audio, so the other side of the call won't be transcribed." });
+    }
   }
 
   try {
     const mic = await microphone(config.micDeviceId);
     tap(context, mic, SPEAKER_CANDIDATE, sender);
     for (const track of mic.getAudioTracks()) {
-      track.onended = () => report({ mic: false, message: 'Microphone disconnected. The interviewer is still being captured.' });
+      track.onended = () => report({ mic: false, message: config.micOnly ? 'Microphone disconnected.' : 'Microphone disconnected. The interviewer is still being captured.' });
     }
     report({ mic: true });
   } catch {
-    report({ mic: false, message: 'Microphone unavailable. The interviewer is still being captured.' });
+    report({ mic: false, message: config.micOnly ? 'Microphone unavailable.' : 'Microphone unavailable. The interviewer is still being captured.' });
   }
 
   if (!status.interviewer && !status.mic) {

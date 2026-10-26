@@ -8,6 +8,7 @@ using FluentAssertions;
 using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Application.Sessions;
 using InterviewCopilot.Application.Transcripts;
+using InterviewCopilot.Domain.Enums;
 using UglyToad.PdfPig.Core;
 using UglyToad.PdfPig.Fonts.Standard14Fonts;
 using UglyToad.PdfPig.Writer;
@@ -108,6 +109,41 @@ public sealed class ApiTests : IClassFixture<ApiFactory>
         ended.StatusCode.Should().Be(HttpStatusCode.OK);
         fetched!.Documents.Should().ContainSingle().Which.FileName.Should().Be("resume.txt");
         list.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Should_CopySessionWithTenDocuments_And_HideItFromOtherUsers()
+    {
+        var client = await _factory.CreateSignedInClientAsync("copier");
+        var stranger = await _factory.CreateSignedInClientAsync("copy-stranger");
+        var source = await (await client.PostAsJsonAsync("/api/sessions", NewSession, Ct)).Content.ReadFromJsonAsync<SessionDto>(Json, Ct);
+        for (var i = 0; i < 10; i++)
+        {
+            using var form = new MultipartFormDataContent();
+            var file = new ByteArrayContent(Encoding.UTF8.GetBytes($"Document number {i}."));
+            file.Headers.ContentType = new MediaTypeHeaderValue("text/plain");
+            form.Add(file, "file", $"doc{i}.txt");
+            (await client.PostAsync($"/api/sessions/{source!.Id}/documents", form, Ct)).StatusCode.Should().Be(HttpStatusCode.Created);
+        }
+
+        var response = await client.PostAsJsonAsync(
+            "/api/sessions",
+            new { Title = "Zoom meeting – 16 Oct 14:05", Mode = "Conversation", AnswerLength = "Long", Framework = "None", SessionPrompt = "ignored", CopyFromSessionId = source!.Id },
+            Ct);
+        var copy = await response.Content.ReadFromJsonAsync<SessionDto>(Json, Ct);
+        var denied = await stranger.PostAsJsonAsync(
+            "/api/sessions",
+            new { Title = "Stolen", Mode = "LiveInterview", AnswerLength = "Short", Framework = "None", CopyFromSessionId = source.Id },
+            Ct);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Created);
+        copy!.Title.Should().Be("Zoom meeting – 16 Oct 14:05");
+        copy.Mode.Should().Be(SessionMode.LiveInterview);
+        copy.AnswerLength.Should().Be(AnswerLength.Short);
+        copy.Framework.Should().Be(AnswerFramework.Star);
+        copy.SessionPrompt.Should().Be("Two senior engineers.");
+        copy.Documents.Should().HaveCount(10);
+        denied.StatusCode.Should().Be(HttpStatusCode.NotFound);
     }
 
     [Fact]

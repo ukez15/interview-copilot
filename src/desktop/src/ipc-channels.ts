@@ -17,6 +17,11 @@ export const IpcChannels = {
   openDataFolder: 'storage:open-folder',
 } as const;
 
+/** Main -> renderer events (listened to in preload.ts). */
+export const IpcEvents = {
+  meetingDetected: 'meeting:detected',
+} as const;
+
 /** Channels used only by the hidden capture window (capture-preload.ts). */
 export const CaptureChannels = {
   getConfig: 'capture:get-config',

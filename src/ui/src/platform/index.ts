@@ -26,6 +26,16 @@ export interface DesktopBridge {
   getCaptureStatus(): Promise<CaptureStatus>;
   /** Opens the backend's data folder in the OS file manager; the desktop main process finds the path itself. */
   openDataFolder(): Promise<void>;
+  /**
+   * #16: the desktop saw a meeting app start and the user agreed (or auto-start is on). Returns the unsubscribe
+   * function. Nothing has started yet; the UI decides which session to use.
+   */
+  onMeetingDetected(callback: (event: MeetingDetectedEvent) => void): () => void;
+}
+
+export interface MeetingDetectedEvent {
+  app: string;
+  autoStart: boolean;
 }
 
 export interface AuthTokens {
@@ -96,6 +106,7 @@ export function createWebPlatform(): Platform {
     stopCapture: () => Promise.resolve(WEB_CAPTURE),
     getCaptureStatus: () => Promise.resolve(WEB_CAPTURE),
     openDataFolder: () => Promise.reject(new Error('Opening folders needs the desktop app.')),
+    onMeetingDetected: () => () => undefined,
   };
 }
 
@@ -117,6 +128,7 @@ export function createDesktopPlatform(bridge: DesktopBridge): Platform {
     stopCapture: () => bridge.stopCapture(),
     getCaptureStatus: () => bridge.getCaptureStatus(),
     openDataFolder: () => bridge.openDataFolder(),
+    onMeetingDetected: (callback) => bridge.onMeetingDetected(callback),
   };
 }
 
