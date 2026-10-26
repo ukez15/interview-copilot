@@ -119,7 +119,12 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
       {question && (
         <div className="grid gap-1">
           <p className="text-sm font-medium">Your answer</p>
-          {segments.length === 0 ? (
+          {result ? (
+            // Once scored, show exactly what was marked rather than the live lines.
+            <p aria-label="Your answer" className="whitespace-pre-wrap text-sm">
+              {result.answerText}
+            </p>
+          ) : segments.length === 0 ? (
             <p className="text-sm text-muted-foreground">Listening…</p>
           ) : (
             <ul aria-label="Your answer" className="grid gap-1 text-sm">

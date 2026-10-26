@@ -143,6 +143,24 @@ DON'T:
 
 ---
 
+## Changes after the owner's first test (2026-10-26)
+
+The owner tested the installer: the mic showed as live, and "Done answering" scored the answer, but no
+words appeared under "Your answer" and the scored answer wasn't shown. The overlay also needed manual
+scrolling. These changes were agreed:
+
+- **Live text (bug #77):** `index.html`'s CSP `connect-src` lacked `ws://127.0.0.1:5480`, so the
+  events socket was blocked. Add it. This also unblocks live-interview auto-answers in the overlay.
+- **Show the scored answer:** once an attempt is scored, "Your answer" shows the exact text that was
+  scored (`attempt.answerText`) in place of the live lines.
+- **Auto-scroll in the overlay:**
+  - Mock interview: follow new text, but pause while the user has scrolled up. Following resumes
+    once they scroll back to the bottom.
+  - Every other mode (live call): always jump to the newest text.
+- New Arg: "at the bottom" means within **24 px** of the end (`AUTO_SCROLL_STICK_PX`).
+- New Heuristics: the overlay never stops following in live-call modes (yes/no); in a mock interview
+  it never scrolls while the user is scrolled up (yes/no).
+
 ## Open questions for the owner
 
 1. **Main window during practice:** (a) **Recommended:** the overlay runs the practice, and the
@@ -156,4 +174,7 @@ DON'T:
 4. **Wording:** keep the current labels ("Next question", "Done answering", "Your answer",
    "Listening…", "Thinking of a question…", "Scoring your answer…")? Recommended: yes.
 5. **Issue:** I'll open "Practice: run mock interviews in the overlay" (`layer:frontend`,
-   `type:feature`, `priority:high`, `module:practice`, milestone v0.2 Core). OK?
+   `type:feature`, `priority:high`, `module:practice`). OK? (Opened as #74 under v0.3 Supporting,
+   where the practice work lives; the v0.2 above was a mistake.)
+
+Approved by the owner with the recommendations (2026-10-26).

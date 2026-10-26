@@ -110,6 +110,21 @@ describe('PracticePanel', () => {
     expect(ctx.calls.finish).toBe(1);
   });
 
+  it('shows the exact scored answer in place of the live lines once scored', async () => {
+    const ctx = setup();
+    await mount(ctx);
+    fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
+    await flush();
+    segment('Candidate', 'live words');
+    expect(screen.getByText('live words')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Done answering' }));
+    await flush();
+
+    expect(screen.getByLabelText('Your answer')).toHaveTextContent(attempt.answerText);
+    expect(screen.queryByText('live words')).not.toBeInTheDocument();
+  });
+
   it('finishes once after 4 s of silence, counted from the last candidate segment', async () => {
     const ctx = setup();
     await mount(ctx);

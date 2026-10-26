@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import { LiveAssistant } from '@/features/copilot/LiveAssistant';
 import { PracticePanel } from '@/features/practice/PracticePanel';
 import { useApp } from '@/lib/app-context';
 import type { Session } from '@/types/api';
+import { useAutoScroll } from './useAutoScroll';
 
 type OverlayView = Pick<Session, 'mode' | 'status' | 'autoAnswer'>;
 
@@ -20,6 +21,10 @@ export function OverlayPage() {
   const { api } = useApp();
   // The overlay has no session object, so it reads the session once before choosing what to show.
   const [view, setView] = useState<OverlayView | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  // A mock interviewee may scroll up to re-read the question; on a live call the newest answer always matters most.
+  const practising = view?.mode === 'MockInterview';
+  useAutoScroll(scroller, practising ? 'follow' : 'always');
 
   useEffect(() => {
     let cancelled = false;
@@ -39,10 +44,13 @@ export function OverlayPage() {
 
   return (
     <div className="h-screen p-2">
-      <div className="h-full overflow-auto rounded-xl border border-border bg-background/95 p-3 shadow-lg [-webkit-app-region:drag]">
+      <div
+        ref={scroller}
+        className="h-full overflow-auto rounded-xl border border-border bg-background/95 p-3 shadow-lg [-webkit-app-region:drag]"
+      >
         <div className="[-webkit-app-region:no-drag]">
-          {view?.mode === 'MockInterview' && <PracticePanel sessionId={sessionId} live={view.status === 'Live'} />}
-          {view && view.mode !== 'MockInterview' && <LiveAssistant sessionId={sessionId} compact autoAnswer={view.autoAnswer} />}
+          {view && practising && <PracticePanel sessionId={sessionId} live={view.status === 'Live'} />}
+          {view && !practising && <LiveAssistant sessionId={sessionId} compact autoAnswer={view.autoAnswer} />}
         </div>
       </div>
     </div>
