@@ -62,6 +62,9 @@ Things to watch:
   releases.**
 - What can't be checked in the cloud: anything that needs the Electron app, a microphone or system
   audio, Ollama, or Windows/macOS. Say so in the PR, and leave that verification to the owner.
+- Dependabot commands (`@dependabot rebase`) posted through the session's GitHub tools arrive with
+  the mention garbled, and Dependabot ignores them. Refresh a stale Dependabot PR with "Update
+  branch" instead, or ask the owner to post the command.
 
 ## Windows gotchas (the owner's dev machine)
 
@@ -88,4 +91,11 @@ Things to watch:
   (`docs/benchmarks/README.md`). The first run, on a 32 GB laptop with CPU-only Ollama, gave a P95
   time-to-first-token of 884 ms, a PASS.
 - #36 (first beta) stays open until the owner's fresh-user check on a clean Windows account passes.
-- Don't merge the Dependabot PR that bumps FluentAssertions to 8.x; it has a commercial licence.
+- The v1 functional requirements (FR-01 to FR-18) are built and tested on Windows. Every module epic is
+  closed except Audio (#13: macOS capture #15, macOS call detection #59) and Copilot (#21: #24).
+- FluentAssertions stays on 7.x; 8.x has a commercial licence. Dependabot ignores 8 and later (#65).
+- The Dependabot backlog was cleared on 2026-10-26: all GitHub Actions moved to their Node 24 majors.
+  `release.yml` only runs on a tag, so the next beta tag is the first real run of the new artifact
+  actions and electron-builder 26.18. Check that run.
+- `dependency-review-action` v5 still honours `deny-licenses`, but it's deprecated. When v6 arrives,
+  move the GPL/AGPL block to `allow-licenses`.
