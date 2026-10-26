@@ -1,6 +1,6 @@
 namespace InterviewCopilot.Api.Infrastructure;
 
-/// <summary>The authorization policy names used by the endpoints.</summary>
+/// <summary>Names of the authorization policies.</summary>
 internal static class Policies
 {
     /// <summary>
