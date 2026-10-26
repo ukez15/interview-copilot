@@ -16,6 +16,7 @@ internal sealed class ApiExceptionHandler(IProblemDetailsService problemDetails)
             DomainException => (StatusCodes.Status400BadRequest, "The request breaks a rule"),
             NotFoundException => (StatusCodes.Status404NotFound, "Not found"),
             ConflictException => (StatusCodes.Status409Conflict, "Conflict"),
+            LlmKeyRejectedException => (StatusCodes.Status401Unauthorized, "The provider rejected the API key"),
             LlmUnavailableException or TranscriptionUnavailableException =>
                 (StatusCodes.Status503ServiceUnavailable, "A provider is unavailable"),
             _ => (0, string.Empty),

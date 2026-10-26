@@ -171,8 +171,9 @@ describe('LiveAssistant and AnswerCard', () => {
     expect(await screen.findByText('I led it.')).toBeInTheDocument();
     expect(screen.getByText('Behavioral · v1')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: /Shorter/ }));
-    await waitFor(() => expect(fetchImpl).toHaveBeenCalledTimes(2));
-    expect(JSON.parse(String(fetchImpl.mock.calls[1]![1]!.body))).toMatchObject({ modifier: 'Shorter', previousAnswer: 'I led it.', previousVersion: 1 });
+    const asks = () => fetchImpl.mock.calls.filter((call) => call[1]?.method === 'POST');
+    await waitFor(() => expect(asks()).toHaveLength(2));
+    expect(JSON.parse(String(asks()[1]![1]!.body))).toMatchObject({ modifier: 'Shorter', previousAnswer: 'I led it.', previousVersion: 1 });
   });
 
   it('shows stream and network errors', async () => {
@@ -262,13 +263,10 @@ describe('SettingsPage', () => {
     await userEvent.type(await screen.findByLabelText('deepgram API key'), 'k');
     await userEvent.click(screen.getByRole('button', { name: 'Save key' }));
     await waitFor(() => expect(platform.setApiKey).toHaveBeenCalledWith('deepgram', 'k'));
-    await userEvent.type(screen.getByLabelText('ollama API key'), 'k');
-    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
-    expect(await screen.findByText('Saved to your OS keychain.')).toBeInTheDocument();
 
     const failing = fakeApi((url) => (url.endsWith('/api/providers') ? json({ detail: 'No providers' }, 500) : json(url.endsWith('/models') ? [] : { llmModel: null })));
     renderWithApp(<SettingsPage />, { api: failing.api });
-    expect(await screen.findByText('No providers')).toBeInTheDocument();
+    expect((await screen.findAllByText('No providers')).length).toBeGreaterThan(0);
   });
 });
 

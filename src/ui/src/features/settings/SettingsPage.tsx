@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
-import { Input, Label } from '@/components/ui/form';
+import { Label } from '@/components/ui/form';
 import { Slider } from '@/components/ui/slider';
 import { MicrophonePicker } from '@/features/audio/MicrophonePicker';
-import { ModelPicker } from '@/features/settings/ModelPicker';
+import { AiModelCard } from '@/features/settings/AiModelCard';
 import { SignOutCard } from '@/features/settings/SignOutCard';
 import { PrivacyCard } from './PrivacyCard';
 import { useApp } from '@/lib/app-context';
@@ -88,7 +88,7 @@ export function SettingsPage() {
       <PrivacyCard />
       <SpeechModelCard />
       {providers && <SpeechToTextCard providers={providers.speechToText} />}
-      <ModelPicker />
+      <AiModelCard />
 
       <Card className="grid gap-4">
         <CardTitle>Providers</CardTitle>
@@ -99,7 +99,7 @@ export function SettingsPage() {
         )}
         {providers && (
           <>
-            <ProviderList title="Speech-to-text" providers={providers.speechToText} keyField={false} />
+            <ProviderList title="Speech-to-text" providers={providers.speechToText} />
             <ProviderList title="AI model" providers={providers.llm} />
           </>
         )}
@@ -110,8 +110,8 @@ export function SettingsPage() {
   );
 }
 
-/** `keyField` is off for speech-to-text: its key lives in the Speech-to-text card. */
-function ProviderList({ title, providers, keyField = true }: { title: string; providers: ProviderInfo[]; keyField?: boolean }) {
+/** Which providers this backend offers. Keys are entered in the Speech-to-text and AI model cards. */
+function ProviderList({ title, providers }: { title: string; providers: ProviderInfo[] }) {
   return (
     <section className="grid gap-2">
       <h3 className="font-medium">{title}</h3>
@@ -120,36 +120,8 @@ function ProviderList({ title, providers, keyField = true }: { title: string; pr
           <div className="text-sm">
             {provider.displayName} {provider.isDefault && <span className="text-muted-foreground">(default)</span>}
           </div>
-          {keyField && provider.requiresApiKey && <ApiKeyField provider={provider.name} />}
         </div>
       ))}
     </section>
-  );
-}
-
-/** BYOK: the key goes to the OS keychain through the desktop app, never to a file or the backend DB. */
-function ApiKeyField({ provider }: { provider: string }) {
-  const { platform } = useApp();
-  const [key, setKey] = useState('');
-  const [status, setStatus] = useState<string | null>(null);
-
-  async function save() {
-    try {
-      await platform.setApiKey(provider, key);
-      setKey('');
-      setStatus('Saved to your OS keychain.');
-    } catch (err) {
-      setStatus(err instanceof Error ? err.message : 'Could not save the key.');
-    }
-  }
-
-  return (
-    <div className="flex gap-2">
-      <Input type="password" aria-label={`${provider} API key`} placeholder="Your API key" value={key} onChange={(e) => setKey(e.target.value)} />
-      <Button size="sm" disabled={!key} onClick={() => void save()}>
-        Save
-      </Button>
-      {status && <span className="self-center text-xs text-muted-foreground">{status}</span>}
-    </div>
   );
 }
