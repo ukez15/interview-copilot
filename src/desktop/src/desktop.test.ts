@@ -7,7 +7,18 @@ import { describe, expect, it, vi } from 'vitest';
 import { BackendProcess, ensureBackend, isHealthy, MAX_RESTARTS, packagedBackendPath, waitForHealthy } from './backend-process';
 import { IpcChannels, IpcEvents } from './ipc-channels';
 import { KeyStore, type SecretCipher } from './key-store';
-import { decide, detectMeetingApp, meetingEventFor, normalizeProcessName, parsePs, parseTasklist } from './meeting-detection';
+import {
+  currentMeeting,
+  decide,
+  detectActiveMeeting,
+  detectMeetingApp,
+  meetingAppForConsentKey,
+  meetingEventFor,
+  normalizeProcessName,
+  parseConsentStore,
+  parsePs,
+  parseTasklist,
+} from './meeting-detection';
 import { clampOpacity, DEFAULT_SETTINGS, sanitize, SettingsStore } from './settings-store';
 
 const tempDir = () => mkdtemp(path.join(tmpdir(), 'ic-desktop-'));
@@ -97,6 +108,81 @@ describe('meeting detection', () => {
       '/sbin/launchd',
       '/Applications/Slack.app/Contents/MacOS/Slack',
     ]);
+  });
+
+  // Trimmed `reg query ...\ConsentStore\microphone /s` output, as captured on Windows 11.
+  const consentStore = (teamsStop: string, zoomStop: string): string =>
+    [
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone',
+      '    Value    REG_SZ    Allow',
+      '',
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\MSTeams_8wekyb3d8bbwe',
+      '    Value    REG_SZ    Allow',
+      '    LastUsedTimeStart    REG_QWORD    0x1dd4ad266ed738d',
+      `    LastUsedTimeStop    REG_QWORD    ${teamsStop}`,
+      '',
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\Microsoft.WindowsCamera_8wekyb3d8bbwe',
+      '    Value    REG_SZ    Allow',
+      '',
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\NonPackaged',
+      '',
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\NonPackaged\\C:#Users#me#AppData#Roaming#Zoom#bin#Zoom.exe',
+      '    LastUsedTimeStart    REG_QWORD    0x1dd5381a205fe4c',
+      `    LastUsedTimeStop    REG_QWORD    ${zoomStop}`,
+      '',
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\CapabilityAccessManager\\ConsentStore\\microphone\\NonPackaged\\C:#Users#me#AppData#Local#Programs#interview-copilot#InterviewCopilot.exe',
+      '    LastUsedTimeStart    REG_QWORD    0x1dd5381a205fe4c',
+      '    LastUsedTimeStop    REG_QWORD    0x0',
+      '',
+    ].join('\r\n');
+
+  it('parses which apps hold the microphone from the consent store', () => {
+    expect(parseConsentStore(consentStore('0x0', '0x1dd5381dd2f75e3'))).toEqual([
+      { key: 'MSTeams_8wekyb3d8bbwe', inUse: true },
+      { key: 'C:#Users#me#AppData#Roaming#Zoom#bin#Zoom.exe', inUse: false },
+      { key: 'C:#Users#me#AppData#Local#Programs#interview-copilot#InterviewCopilot.exe', inUse: true },
+    ]);
+    expect(parseConsentStore('')).toEqual([]);
+  });
+
+  it('maps consent store keys to meeting apps', () => {
+    expect(meetingAppForConsentKey('MSTeams_8wekyb3d8bbwe')).toBe('Microsoft Teams');
+    expect(meetingAppForConsentKey('C:#Program Files#Slack#slack.exe')).toBe('Slack');
+    expect(meetingAppForConsentKey('C:#Program Files#Google#Chrome#Application#chrome.exe')).toBeNull();
+    expect(meetingAppForConsentKey('Claude_pzs8sxrjxfjjc')).toBeNull();
+  });
+
+  it('reports a meeting only while its app holds the mic and is running', () => {
+    const running = ['explorer.exe', 'ms-teams.exe', 'Zoom.exe'];
+    expect(detectActiveMeeting(running, consentStore('0x0', '0x1dd5381dd2f75e3'))).toBe('Microsoft Teams');
+    expect(detectActiveMeeting(running, consentStore('0x1dd4ad281fbb0c1', '0x0'))).toBe('Zoom');
+    // Teams open in the background, no call: the beta's false prompt.
+    expect(detectActiveMeeting(running, consentStore('0x1dd4ad281fbb0c1', '0x1dd5381dd2f75e3'))).toBeNull();
+    // Stale "in use" left behind by a crash: the process is gone.
+    expect(detectActiveMeeting(['explorer.exe'], consentStore('0x0', '0x0'))).toBeNull();
+    // Our own capture holds the mic, but isn't a meeting app.
+    expect(detectActiveMeeting(['InterviewCopilot.exe'], consentStore('0x1', '0x1'))).toBeNull();
+  });
+
+  it('uses the mic signal on Windows and the process list elsewhere', async () => {
+    const run = vi.fn(async (command: string) =>
+      command === 'tasklist' ? '"ms-teams.exe","1"\r\n' : consentStore('0x0', '0x1'),
+    );
+    expect(await currentMeeting('win32', run)).toBe('Microsoft Teams');
+    expect(run).toHaveBeenCalledWith('reg', ['query', expect.stringContaining('ConsentStore\\microphone'), '/s']);
+
+    const macRun = vi.fn(async () => '/Applications/zoom.us.app/Contents/MacOS/zoom.us\n');
+    expect(await currentMeeting('darwin', macRun)).toBe('Zoom');
+    expect(macRun).toHaveBeenCalledWith('ps', ['-axo', 'comm=']);
+  });
+
+  it('prompts for nothing when the consent store or process list cannot be read', async () => {
+    const regFails = async (command: string) => {
+      if (command === 'reg') throw new Error('access denied');
+      return '"ms-teams.exe","1"\r\n';
+    };
+    expect(await currentMeeting('win32', regFails)).toBeNull();
+    expect(await currentMeeting('darwin', async () => Promise.reject(new Error('ps missing')))).toBeNull();
   });
 
   it('asks first, starts only when auto-start is on, and never repeats for the same meeting', () => {

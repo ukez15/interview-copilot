@@ -8,7 +8,7 @@ import { CaptureController } from './capture-controller';
 import { openDataFolder } from './data-folder';
 import { APP_HOST, APP_PROTOCOL, BACKEND_URL, CaptureChannels, IpcChannels, IpcEvents } from './ipc-channels';
 import { KeyStore } from './key-store';
-import { decide, detectMeetingApp, listProcessNames, meetingEventFor } from './meeting-detection';
+import { currentMeeting, decide, meetingEventFor } from './meeting-detection';
 import { clampOpacity, SettingsStore } from './settings-store';
 import { createCaptureWindow, createMainWindow, createOverlayWindow } from './windows';
 
@@ -172,11 +172,11 @@ async function startBackend(): Promise<void> {
   }
 }
 
-/** FR-16: ask before listening when a meeting app starts (unless auto-start is on). */
+/** FR-16: ask before listening when a call starts (unless auto-start is on). */
 function watchForMeetings(): void {
   setInterval(() => {
     void (async () => {
-      const meeting = detectMeetingApp(await listProcessNames().catch(() => []));
+      const meeting = await currentMeeting();
       const decision = decide(lastMeeting, meeting, (await settings.get()).autoStartOnMeeting);
       lastMeeting = meeting;
       if (decision === 'ignore' || !mainWindow || !meeting) {
