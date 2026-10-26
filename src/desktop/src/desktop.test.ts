@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { ChildProcess } from 'node:child_process';
 import { describe, expect, it, vi } from 'vitest';
-import { BackendProcess, MAX_RESTARTS, packagedBackendPath, waitForHealthy } from './backend-process';
+import { BackendProcess, ensureBackend, isHealthy, MAX_RESTARTS, packagedBackendPath, waitForHealthy } from './backend-process';
 import { IpcChannels, IpcEvents } from './ipc-channels';
 import { KeyStore, type SecretCipher } from './key-store';
 import { decide, detectMeetingApp, meetingEventFor, normalizeProcessName, parsePs, parseTasklist } from './meeting-detection';
@@ -152,6 +152,35 @@ describe('backend process', () => {
 
     expect(await waitForHealthy(fetchImpl, 10_000, 1, Date.now, () => Promise.resolve())).toBe(true);
     expect(fetchImpl).toHaveBeenCalledWith('http://127.0.0.1:5480/health');
+  });
+
+  it('probes /health once and treats errors and non-OK answers as down', async () => {
+    expect(await isHealthy(() => Promise.resolve({ ok: true }))).toBe(true);
+    expect(await isHealthy(() => Promise.resolve({ ok: false }))).toBe(false);
+    expect(await isHealthy(() => Promise.reject(new Error('refused')))).toBe(false);
+  });
+
+  it('reuses a backend that is already healthy instead of spawning a second one (#36)', async () => {
+    const spawnBackend = vi.fn();
+
+    expect(await ensureBackend({ packaged: true, probe: () => Promise.resolve(true), spawnBackend })).toBe('reused');
+    expect(spawnBackend).not.toHaveBeenCalled();
+  });
+
+  it('spawns the bundled backend when nothing answers on the port', async () => {
+    const spawnBackend = vi.fn();
+
+    expect(await ensureBackend({ packaged: true, probe: () => Promise.resolve(false), spawnBackend })).toBe('spawned');
+    expect(spawnBackend).toHaveBeenCalledTimes(1);
+  });
+
+  it('never spawns in development, where the backend runs separately', async () => {
+    const spawnBackend = vi.fn();
+    const probe = vi.fn();
+
+    expect(await ensureBackend({ packaged: false, probe, spawnBackend })).toBe('external');
+    expect(spawnBackend).not.toHaveBeenCalled();
+    expect(probe).not.toHaveBeenCalled();
   });
 
   it('gives up after the timeout', async () => {
