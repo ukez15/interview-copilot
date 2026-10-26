@@ -29,6 +29,11 @@ export function TranscriptPage() {
     [transcript],
   );
 
+  const attempts = useMemo(
+    () => [...(transcript?.attempts ?? [])].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)),
+    [transcript],
+  );
+
   async function exportPdf() {
     try {
       const blob = await api.downloadTranscriptPdf(sessionId);
@@ -108,6 +113,25 @@ export function TranscriptPage() {
           </ul>
         )}
       </Card>
+      {attempts.length > 0 && (
+        <Card className="grid gap-3">
+          <CardTitle>Practice</CardTitle>
+          <ul aria-label="Practice" className="grid gap-4">
+            {attempts.map((attempt) => (
+              <li key={attempt.id} className="grid gap-1">
+                <div className="font-medium">{attempt.question}</div>
+                <div className="text-xs text-muted-foreground">Score {attempt.score}/10</div>
+                <p className="whitespace-pre-wrap text-sm">
+                  <strong>Answer:</strong> {attempt.answerText}
+                </p>
+                <p className="whitespace-pre-wrap text-sm">
+                  <strong>Feedback:</strong> {attempt.feedback}
+                </p>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
     </main>
   );
 }

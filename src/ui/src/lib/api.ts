@@ -6,11 +6,14 @@ import type {
   CloudModel,
   DocumentSummary,
   OllamaModel,
+  PairedBrowser,
+  PairingCode,
   Preferences,
   Providers,
   Session,
   StorageInfo,
   SessionSettingsInput,
+  PracticeAttempt,
   Transcript,
   WhisperModel,
 } from '@/types/api';
@@ -120,6 +123,21 @@ export class ApiClient {
     return this.json(`/api/sessions/${id}/transcript`);
   }
 
+  /** #26: asks the next mock-interview question and opens it for the candidate's spoken answer. */
+  async practiceNext(sessionId: string): Promise<string> {
+    const body = await this.json<{ question: string }>(`/api/sessions/${sessionId}/practice/next`, { method: 'POST' });
+    return body.question;
+  }
+
+  /** #26: scores the answer heard since the question was asked and saves the attempt. */
+  practiceFinish(sessionId: string): Promise<PracticeAttempt> {
+    return this.json(`/api/sessions/${sessionId}/practice/finish`, { method: 'POST' });
+  }
+
+  practiceAttempts(sessionId: string): Promise<PracticeAttempt[]> {
+    return this.json(`/api/sessions/${sessionId}/practice/attempts`);
+  }
+
   startSession(id: string): Promise<Session> {
     return this.json(`/api/sessions/${id}/start`, { method: 'POST' });
   }
@@ -188,6 +206,19 @@ export class ApiClient {
       method: 'PUT',
       body: JSON.stringify({ key }),
     });
+  }
+
+  /** #33: a single-use code to type into the extension popup. */
+  createPairingCode(): Promise<PairingCode> {
+    return this.json('/api/pairing/codes', { method: 'POST' });
+  }
+
+  listPairedBrowsers(): Promise<PairedBrowser[]> {
+    return this.json('/api/pairing/browsers');
+  }
+
+  async revokePairedBrowser(id: string): Promise<void> {
+    await this.send(`/api/pairing/browsers/${encodeURIComponent(id)}`, { method: 'DELETE' });
   }
 
   transcriptPdfUrl(sessionId: string): string {

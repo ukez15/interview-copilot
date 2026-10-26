@@ -38,7 +38,7 @@ internal static class EventsEndpoints
                 return Results.Empty;
             })
             .WithTags("Events")
-            .RequireAuthorization();
+            .RequireAuthorization(Policies.ExtensionScope);
     }
 
     private static async Task StreamAsync(WebSocket socket, SessionEventSubscription subscription, CancellationToken ct)
