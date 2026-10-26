@@ -40,8 +40,8 @@
   </ItemGroup>
 
   <ItemGroup Label="Aspire (dev only)">
-    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.6.3" />
-    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.6.3" />
+    <PackageVersion Include="Aspire.Hosting.AppHost" Version="13.6.4" />
+    <PackageVersion Include="Aspire.Hosting.JavaScript" Version="13.6.4" />
   </ItemGroup>
 
   <ItemGroup Label="Tests">
