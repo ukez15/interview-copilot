@@ -22,7 +22,7 @@ jobs:
         working-directory: src/backend
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
       - run: dotnet tool restore
@@ -40,7 +40,7 @@ jobs:
           LINE=$(grep -oP 'Line coverage:\s*\K[\d.]+' TestResults/report/Summary.txt)
           echo "Line coverage: $LINE%"
           awk -v c="$LINE" 'BEGIN { if (c + 0 < 75) { print "FAIL: coverage below 75%"; exit 1 } }'
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: backend-coverage
@@ -53,7 +53,7 @@ jobs:
       ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
