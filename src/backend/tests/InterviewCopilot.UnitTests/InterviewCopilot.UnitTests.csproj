@@ -19,5 +19,6 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\InterviewCopilot.Infrastructure\InterviewCopilot.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\tools\InterviewCopilot.Benchmark\InterviewCopilot.Benchmark.csproj" />
   </ItemGroup>
 </Project>
