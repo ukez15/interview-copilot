@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { fakeApi, json, renderWithApp, sampleSession } from '@/test/helpers';
 import { SessionPage } from './SessionPage';
 import { SessionsPage } from './SessionsPage';
+import { chooseOption } from '@/test/select';
 
 const route = { route: '/sessions/s1', path: '/sessions/:sessionId' };
 
@@ -28,14 +29,14 @@ describe.each(['Draft', 'Live'] as const)('session settings editing (%s)', (stat
     await screen.findByText('Acme onsite');
     expect(screen.queryByLabelText('Title')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Mode')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Answer length')).toHaveValue('Short');
-    expect(screen.getByLabelText('Answer framework')).toHaveValue('Star');
-    expect(screen.getByLabelText(/Pin a question type/)).toHaveValue('Behavioral');
+    expect(screen.getByLabelText('Answer length')).toHaveTextContent('Short');
+    expect(screen.getByLabelText('Answer framework')).toHaveTextContent('STAR');
+    expect(screen.getByLabelText(/Pin a question type/)).toHaveTextContent('Behavioral');
     expect(screen.getByLabelText('Session prompt')).toHaveValue('Panel of two');
 
-    await userEvent.selectOptions(screen.getByLabelText('Answer length'), 'Long');
-    await userEvent.selectOptions(screen.getByLabelText('Answer framework'), 'Smart');
-    await userEvent.selectOptions(screen.getByLabelText(/Pin a question type/), '');
+    await chooseOption(userEvent, 'Answer length', 'Long');
+    await chooseOption(userEvent, 'Answer framework', 'SMART');
+    await chooseOption(userEvent, /Pin a question type/, 'Auto-detect');
     await userEvent.clear(screen.getByLabelText('Session prompt'));
     await userEvent.type(screen.getByLabelText('Session prompt'), 'New prompt');
     await userEvent.click(screen.getByRole('button', { name: 'Save settings' }));

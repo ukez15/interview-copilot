@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Label, Select } from '@/components/ui/form';
+import { Label } from '@/components/ui/form';
+import { Select } from '@/components/ui/select';
 
 export interface Microphone {
   deviceId: string;
@@ -38,15 +39,16 @@ export function MicrophonePicker({
   return (
     <div className="grid gap-2">
       <Label htmlFor="microphone">Microphone</Label>
-      <Select id="microphone" value={value ?? ''} onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}>
-        <option value="">System default</option>
-        {microphones.map((mic) => (
-          <option key={mic.deviceId} value={mic.deviceId}>
-            {mic.label}
-          </option>
-        ))}
-        {missing && <option value={value}>Saved microphone (not connected)</option>}
-      </Select>
+      <Select
+        id="microphone"
+        value={value ?? ''}
+        onValueChange={(v) => onChange(v === '' ? null : v)}
+        options={[
+          { value: '', label: 'System default' },
+          ...microphones.map((mic) => ({ value: mic.deviceId, label: mic.label })),
+          ...(missing ? [{ value, label: 'Saved microphone (not connected)' }] : []),
+        ]}
+      />
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );

@@ -12,6 +12,7 @@ import { OverlayPage } from './overlay/OverlayPage';
 import { SessionPage } from './sessions/SessionPage';
 import { SessionsPage } from './sessions/SessionsPage';
 import { SettingsPage } from './settings/SettingsPage';
+import { chooseOption, closeSelect, openSelect } from '@/test/select';
 
 describe('SignInPage', () => {
   it('registers, signs in and shares the token with the platform', async () => {
@@ -49,11 +50,11 @@ describe('SessionsPage', () => {
 
     expect(await screen.findByText('Acme onsite')).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText('Title'), 'Globex call');
-    await userEvent.selectOptions(screen.getByLabelText('Mode'), 'Conversation');
-    await userEvent.selectOptions(screen.getByLabelText('Answer length'), 'Long');
-    await userEvent.selectOptions(screen.getByLabelText('Answer framework'), 'Smart');
-    await userEvent.selectOptions(screen.getByLabelText(/Pin a question type/), 'SystemDesign');
-    await userEvent.selectOptions(screen.getByLabelText(/Pin a question type/), '');
+    await chooseOption(userEvent, 'Mode', 'Sales call / other conversation');
+    await chooseOption(userEvent, 'Answer length', 'Long');
+    await chooseOption(userEvent, 'Answer framework', 'SMART');
+    await chooseOption(userEvent, /Pin a question type/, 'System design');
+    await chooseOption(userEvent, /Pin a question type/, 'Auto-detect');
     await userEvent.type(screen.getByLabelText('Session prompt'), 'Buyer is a CTO');
     await userEvent.click(screen.getByRole('button', { name: 'Create session' }));
 
@@ -303,7 +304,9 @@ describe('SettingsPage', () => {
     const setOpacity = vi.spyOn(platform, 'setOverlayOpacity');
     renderWithApp(<SettingsPage />, { api, platform });
 
-    expect(await screen.findByRole('option', { name: 'Deepgram (cloud, paid)' })).toBeInTheDocument();
+    const providers = await openSelect(userEvent, 'Speech-to-text provider');
+    expect(await providers.findByRole('option', { name: 'Deepgram (cloud, paid)' })).toBeInTheDocument();
+    await closeSelect(userEvent);
     await userEvent.click(screen.getByRole('button', { name: 'Reset to 85%' }));
     expect(setOpacity).toHaveBeenCalledWith(0.85);
     fireEvent.keyDown(screen.getByRole('slider', { name: 'Overlay opacity' }), { key: 'ArrowLeft' });
@@ -312,7 +315,7 @@ describe('SettingsPage', () => {
     await userEvent.click(screen.getByRole('checkbox'));
     expect((await platform.getSettings()).autoStartOnMeeting).toBe(true);
 
-    await userEvent.selectOptions(screen.getByLabelText('Speech-to-text provider'), 'deepgram');
+    await chooseOption(userEvent, 'Speech-to-text provider', 'Deepgram (cloud, paid)');
     await userEvent.type(await screen.findByLabelText('deepgram API key'), 'dg-key');
     await userEvent.click(screen.getByRole('button', { name: 'Save key' }));
     expect(await screen.findByText('Saving API keys needs the desktop app.')).toBeInTheDocument();

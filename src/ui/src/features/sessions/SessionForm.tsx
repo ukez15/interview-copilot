@@ -1,6 +1,7 @@
 import { useRef, useState, type ClipboardEvent, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input, Label, Select, Textarea } from '@/components/ui/form';
+import { Input, Label, Textarea } from '@/components/ui/form';
+import { Select } from '@/components/ui/select';
 import { JobDraftEditor } from '@/features/documents/JobDraftEditor';
 import { UNREADABLE, normaliseTxtName, parseLink, type JobDraft } from '@/features/documents/job-link';
 import { useApp } from '@/lib/app-context';
@@ -152,13 +153,12 @@ export function SessionForm({
 
           <div className="grid gap-1.5">
             <Label htmlFor="mode">Mode</Label>
-            <Select id="mode" value={input.mode} onChange={(e) => update('mode', e.target.value as SessionMode)}>
-              {Object.entries(MODE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </Select>
+            <Select
+              id="mode"
+              value={input.mode}
+              onValueChange={(v) => update('mode', v as SessionMode)}
+              options={Object.entries(MODE_LABELS).map(([value, label]) => ({ value, label }))}
+            />
           </div>
         </>
       )}
@@ -166,23 +166,21 @@ export function SessionForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-1.5">
           <Label htmlFor="length">Answer length</Label>
-          <Select id="length" value={input.answerLength} onChange={(e) => update('answerLength', e.target.value as CreateSessionInput['answerLength'])}>
-            {ANSWER_LENGTHS.map((length) => (
-              <option key={length} value={length}>
-                {length}
-              </option>
-            ))}
-          </Select>
+          <Select
+            id="length"
+            value={input.answerLength}
+            onValueChange={(v) => update('answerLength', v as CreateSessionInput['answerLength'])}
+            options={ANSWER_LENGTHS.map((length) => ({ value: length, label: length }))}
+          />
         </div>
         <div className="grid gap-1.5">
           <Label htmlFor="framework">Answer framework</Label>
-          <Select id="framework" value={input.framework} onChange={(e) => update('framework', e.target.value as CreateSessionInput['framework'])}>
-            {ANSWER_FRAMEWORKS.map((framework) => (
-              <option key={framework} value={framework}>
-                {FRAMEWORK_LABELS[framework]}
-              </option>
-            ))}
-          </Select>
+          <Select
+            id="framework"
+            value={input.framework}
+            onValueChange={(v) => update('framework', v as CreateSessionInput['framework'])}
+            options={ANSWER_FRAMEWORKS.map((framework) => ({ value: framework, label: FRAMEWORK_LABELS[framework] }))}
+          />
         </div>
       </div>
 
@@ -191,15 +189,9 @@ export function SessionForm({
         <Select
           id="pinned"
           value={input.pinnedQuestionType ?? ''}
-          onChange={(e) => update('pinnedQuestionType', e.target.value === '' ? null : (e.target.value as QuestionType))}
-        >
-          <option value="">Auto-detect</option>
-          {QUESTION_TYPES.map((type) => (
-            <option key={type} value={type}>
-              {QUESTION_TYPE_LABELS[type]}
-            </option>
-          ))}
-        </Select>
+          onValueChange={(v) => update('pinnedQuestionType', v === '' ? null : (v as QuestionType))}
+          options={[{ value: '', label: 'Auto-detect' }, ...QUESTION_TYPES.map((type) => ({ value: type, label: QUESTION_TYPE_LABELS[type] }))]}
+        />
       </div>
 
       <div className="grid gap-1.5">

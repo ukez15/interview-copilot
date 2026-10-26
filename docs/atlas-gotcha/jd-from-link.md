@@ -293,3 +293,13 @@ Also from the manual test (owner, 2026-10-26):
   visually hidden but keeps keyboard focus and the "Add documents" accessible name), so it reads as clickable.
 - **Owner decision: keep the "Job posting link" box in the Documents panel.** Title paste only exists
   while creating a session; the panel box is the way to add a JD from a link to an existing session.
+
+## Change 2: app-styled dropdowns (owner request, 2026-10-26)
+
+The CSS-only dropdown fix (`color-scheme` + `select option` colours) works in Chromium but not in the
+Electron window on Windows: the open list of a native `<select>` is drawn outside the page and keeps
+its white look. **Owner decision:** replace the native dropdowns with the shadcn/ui Select
+(`@radix-ui/react-select` 2.4.1, exact version), whose list renders inside the page in the app's
+theme colours. The CSS-only fix is dropped. Scope: the shared `Select` in `components/ui` and its 9
+uses (MicrophonePicker, SessionForm ×4, AiModelCard ×2, ModelPicker, SpeechToTextCard); behaviour,
+labels and option texts unchanged.
