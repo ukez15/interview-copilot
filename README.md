@@ -101,6 +101,9 @@ default local models on the hardware above. Measured results: [`docs/benchmarks/
 
 - **macOS: microphone only.** The macOS beta can't capture the other side of the call yet (#15), so
   only your own voice is transcribed. The macOS builds haven't been tested on a real Mac yet.
+- **Meeting prompt when a meeting app is merely open.** Detection checks whether Zoom, Teams, Slack and
+  similar apps are running, not whether you're in a call. So with Teams open in the background you'll
+  be asked once per app launch. Click **Not now**.
 - **First answer is slower.** Ollama loads the model on the first question, which can take a few seconds.
 - **Unsigned installers**, as described above, and **no auto-update**: download new versions from Releases.
 
