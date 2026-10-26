@@ -149,7 +149,8 @@ public sealed class AutoAnswerServiceTests : IDisposable
         _store.Answers.Should().ContainSingle().Which.Question.Should().Be("Why do you want this job?");
         Types.Count(t => t == SessionEventTypes.QuestionDetected).Should().Be(2);
         Types.Count(t => t == SessionEventTypes.AnswerDone).Should().Be(1);
-        _llm.FirstCallCancelled.Should().BeTrue();
+        // The cancelled call notices on its own thread, possibly after the newer answer is done.
+        await _llm.FirstCallCancelled.Task.WaitAsync(TimeSpan.FromSeconds(10), Ct);
     }
 
     [Fact]
@@ -216,7 +217,7 @@ public sealed class AutoAnswerServiceTests : IDisposable
 
         public bool Fail { get; init; }
 
-        public bool FirstCallCancelled { get; private set; }
+        public TaskCompletionSource FirstCallCancelled { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
         public TaskCompletionSource FirstTokenSent { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -240,7 +241,7 @@ public sealed class AutoAnswerServiceTests : IDisposable
                 }
                 catch (OperationCanceledException)
                 {
-                    FirstCallCancelled = true;
+                    FirstCallCancelled.TrySetResult();
                     throw;
                 }
             }
