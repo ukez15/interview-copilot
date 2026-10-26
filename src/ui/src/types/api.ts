@@ -28,11 +28,23 @@ export type Speaker = 'Interviewer' | 'Candidate';
 /** FR-02 */
 export const MAX_DOCUMENTS_PER_SESSION = 10;
 
+/** Mirrors SessionLimits.MaxTitleLength in the backend. */
+export const MAX_SESSION_TITLE_LENGTH = 200;
+
 export interface DocumentSummary {
   id: string;
   fileName: string;
   characterCount: number;
   createdAt: string;
+}
+
+export type JobPostingSource = 'JsonLd' | 'Readable';
+
+/** A job description read from a link; nothing is stored until the user saves it as a document. */
+export interface JobPostingPreview {
+  suggestedName: string;
+  text: string;
+  source: JobPostingSource;
 }
 
 export interface Session {

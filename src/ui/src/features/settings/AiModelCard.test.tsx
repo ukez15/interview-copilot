@@ -5,6 +5,7 @@ import { createWebPlatform, type Platform } from '@/platform';
 import { fakeApi, json, renderWithApp } from '@/test/helpers';
 import type { Preferences } from '@/types/api';
 import { AiModelCard } from './AiModelCard';
+import { chooseOption, closeSelect, openSelect } from '@/test/select';
 
 const llm = [
   { name: 'ollama', displayName: 'Ollama (local, free)', isLocal: true, requiresApiKey: false, isDefault: true },
@@ -71,10 +72,12 @@ describe('AiModelCard', () => {
     const { api } = setup();
     renderWithApp(<AiModelCard />, { api });
 
-    expect(await screen.findByLabelText('Provider')).toHaveValue('ollama');
+    expect(await screen.findByLabelText('Provider')).toHaveTextContent('Ollama (local, free)');
     expect(await screen.findByLabelText('AI model')).toBeInTheDocument();
     expect(screen.queryByLabelText('API key')).not.toBeInTheDocument();
-    expect(screen.getByRole('option', { name: 'OpenAI (cloud, your key)' })).toBeInTheDocument();
+    const providers = await openSelect(userEvent, 'Provider');
+    expect(providers.getByRole('option', { name: 'OpenAI (cloud, your key)' })).toBeInTheDocument();
+    await closeSelect(userEvent);
   });
 
   it('shows the cloud settings for a saved cloud provider and its saved model', async () => {
@@ -83,8 +86,8 @@ describe('AiModelCard', () => {
 
     expect(await screen.findByLabelText('API key')).toBeInTheDocument();
     expect(screen.queryByLabelText('AI model')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Provider')).toHaveValue('openai');
-    expect(screen.getByLabelText('Model')).toHaveValue('gpt-a');
+    expect(screen.getByLabelText('Provider')).toHaveTextContent('OpenAI (cloud, your key)');
+    expect(screen.getByLabelText('Model')).toHaveTextContent('gpt-a');
   });
 
   it('saves and deletes the key through the keychain and never shows it', async () => {
@@ -118,7 +121,7 @@ describe('AiModelCard', () => {
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Load models' })).toBeEnabled());
     await userEvent.click(screen.getByRole('button', { name: 'Load models' }));
-    await userEvent.selectOptions(await screen.findByRole('combobox', { name: 'Model' }), 'gpt-b');
+    await chooseOption(userEvent, 'Model', 'GPT B');
     await userEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByText('Saved.')).toBeInTheDocument();
@@ -130,7 +133,7 @@ describe('AiModelCard', () => {
     const { api } = setup();
     renderWithApp(<AiModelCard />, { api, platform: desktop().platform });
 
-    await userEvent.selectOptions(await screen.findByLabelText('Provider'), 'anthropic');
+    await chooseOption(userEvent, 'Provider', 'Anthropic (cloud, your key)');
 
     expect(await screen.findByLabelText('API key')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
@@ -140,7 +143,7 @@ describe('AiModelCard', () => {
     const { api, put } = setup({ llmProvider: 'openai', llmModel: 'gpt-a' });
     renderWithApp(<AiModelCard />, { api, platform: desktop().platform });
 
-    await userEvent.selectOptions(await screen.findByLabelText('Provider'), 'ollama');
+    await chooseOption(userEvent, 'Provider', 'Ollama (local, free)');
 
     expect(await screen.findByLabelText('AI model')).toBeInTheDocument();
     expect(put).toEqual([{ url: 'http://api.test/api/preferences/llm', body: { provider: 'ollama', model: null } }]);

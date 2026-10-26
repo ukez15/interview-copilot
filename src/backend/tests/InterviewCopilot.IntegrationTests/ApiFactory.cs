@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
+using InterviewCopilot.Application.Documents;
 using InterviewCopilot.Application.Providers;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -31,6 +32,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public FakeWhisperModel WhisperModel { get; } = new();
 
+    public FakeWebPageFetcher Fetcher { get; } = new();
+
     public object Credentials(string username, string? secret = null) =>
         new Dictionary<string, string> { ["username"] = username, ["password"] = secret ?? TestSecret };
 
@@ -57,6 +60,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
             services.AddSingleton<ISpeechToTextProvider>(Stt);
             services.RemoveAll<IWhisperModelStatus>();
             services.AddSingleton<IWhisperModelStatus>(WhisperModel);
+            services.RemoveAll<IWebPageFetcher>();
+            services.AddSingleton<IWebPageFetcher>(Fetcher);
         });
     }
 
@@ -134,5 +139,19 @@ public sealed class ScriptedStt : ISpeechToTextProvider
         }
 
         return Task.FromResult(new TranscriptionResult(Text));
+    }
+}
+
+/// <summary>Stands in for the real fetcher so no test touches the network.</summary>
+public sealed class FakeWebPageFetcher : IWebPageFetcher
+{
+    public Func<Uri, FetchedPage> Respond { get; set; } = url => new FetchedPage(url, "<html><body></body></html>");
+
+    public List<Uri> Requested { get; } = [];
+
+    public Task<FetchedPage> FetchAsync(Uri url, CancellationToken cancellationToken)
+    {
+        Requested.Add(url);
+        return Task.FromResult(Respond(url));
     }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
-import { Label, Select } from '@/components/ui/form';
+import { Label } from '@/components/ui/form';
+import { Select } from '@/components/ui/select';
 import { useApp } from '@/lib/app-context';
 import type { OllamaModel } from '@/types/api';
 
@@ -52,15 +53,16 @@ export function ModelPicker() {
       <CardTitle>Ollama model</CardTitle>
       <div className="grid gap-2">
         <Label htmlFor="llm-model">AI model</Label>
-        <Select id="llm-model" value={selected ?? ''} onChange={(e) => void change(e.target.value)}>
-          <option value="">{defaultModel ? `Default (${defaultModel})` : 'Default model'}</option>
-          {missing && <option value={selected}>{selected} (not installed)</option>}
-          {models.map((model) => (
-            <option key={model.name} value={model.name}>
-              {model.name} ({formatModelSize(model.sizeBytes)})
-            </option>
-          ))}
-        </Select>
+        <Select
+          id="llm-model"
+          value={selected ?? ''}
+          onValueChange={(v) => void change(v)}
+          options={[
+            { value: '', label: defaultModel ? `Default (${defaultModel})` : 'Default model' },
+            ...(missing ? [{ value: selected, label: `${selected} (not installed)` }] : []),
+            ...models.map((model) => ({ value: model.name, label: `${model.name} (${formatModelSize(model.sizeBytes)})` })),
+          ]}
+        />
       </div>
       {error && (
         <p role="alert" className="text-sm text-destructive">

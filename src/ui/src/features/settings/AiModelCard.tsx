@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
-import { Input, Label, Select } from '@/components/ui/form';
+import { Input, Label } from '@/components/ui/form';
+import { Select } from '@/components/ui/select';
 import { useApp } from '@/lib/app-context';
 import type { CloudModel, Preferences, ProviderInfo } from '@/types/api';
 import { ModelPicker } from './ModelPicker';
@@ -56,13 +57,13 @@ export function AiModelCard() {
         <CardTitle>AI provider</CardTitle>
         <div className="grid gap-2">
           <Label htmlFor="llm-provider">Provider</Label>
-          <Select id="llm-provider" value={selected ?? ''} disabled={providers.length === 0} onChange={(e) => void change(e.target.value)}>
-            {providers.map((provider) => (
-              <option key={provider.name} value={provider.name}>
-                {provider.displayName}
-              </option>
-            ))}
-          </Select>
+          <Select
+            id="llm-provider"
+            value={selected ?? ''}
+            disabled={providers.length === 0}
+            onValueChange={(v) => void change(v)}
+            options={providers.map((provider) => ({ value: provider.name, label: provider.displayName }))}
+          />
         </div>
         {error && (
           <p role="alert" className="text-sm text-destructive">
@@ -194,15 +195,16 @@ function CloudModelSettings({ provider, prefs, onSaved }: CloudModelSettingsProp
       <div className="grid gap-2">
         <Label htmlFor="cloud-model">Model</Label>
         <div className="flex gap-2">
-          <Select id="cloud-model" value={model} onChange={(e) => setModel(e.target.value)}>
-            <option value="">Choose a model</option>
-            {model !== '' && !listed && <option value={model}>{model}</option>}
-            {models.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.displayName}
-              </option>
-            ))}
-          </Select>
+          <Select
+            id="cloud-model"
+            value={model}
+            onValueChange={setModel}
+            options={[
+              { value: '', label: 'Choose a model' },
+              ...(model !== '' && !listed ? [{ value: model, label: model }] : []),
+              ...models.map((m) => ({ value: m.id, label: m.displayName })),
+            ]}
+          />
           <Button size="sm" variant="ghost" disabled={!hasKey || loading} onClick={() => void loadModels()}>
             Load models
           </Button>
