@@ -228,10 +228,11 @@ public sealed class DeepgramSocketTests : IAsyncDisposable
             socket.Abort();
             return Task.CompletedTask;
         });
-        await using var connection = await factory.ConnectAsync(_apiKey, Ct);
 
+        // The abort can land during the handshake or after it; either way the caller sees a connection error.
         var act = async () =>
         {
+            await using var connection = await factory.ConnectAsync(_apiKey, Ct);
             while (true)
             {
                 await connection.ReceiveAsync(Ct);
