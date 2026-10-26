@@ -15,7 +15,8 @@ public sealed record CreateSessionCommand(
     AnswerLength AnswerLength,
     AnswerFramework Framework,
     QuestionType? PinnedQuestionType,
-    string? SessionPrompt);
+    string? SessionPrompt,
+    Guid? CopyFromSessionId = null);
 
 public sealed record UpdateSessionSettingsCommand(
     AnswerLength AnswerLength,
@@ -73,8 +74,26 @@ public sealed class SessionService(
     public async Task<SessionDto> CreateAsync(CreateSessionCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
-        var session = Session.Create(command.OwnerId, command.Title, command.Mode, clock.GetUtcNow());
-        session.ConfigureAnswers(command.AnswerLength, command.Framework, command.PinnedQuestionType, command.SessionPrompt);
+        var now = clock.GetUtcNow();
+        Session session;
+        if (command.CopyFromSessionId is { } sourceId)
+        {
+            // #16: a copy takes everything but the title from the source, which must be the caller's own.
+            var source = await LoadOwnedAsync(command.OwnerId, sourceId, cancellationToken);
+            session = Session.Create(command.OwnerId, command.Title, source.Mode, now);
+            session.ConfigureAnswers(source.AnswerLength, source.Framework, source.PinnedQuestionType, source.SessionPrompt);
+            session.SetAutoAnswer(source.AutoAnswer);
+            foreach (var document in source.Documents)
+            {
+                session.AttachDocument(document.FileName, document.Content, now);
+            }
+        }
+        else
+        {
+            session = Session.Create(command.OwnerId, command.Title, command.Mode, now);
+            session.ConfigureAnswers(command.AnswerLength, command.Framework, command.PinnedQuestionType, command.SessionPrompt);
+        }
+
         sessions.Add(session);
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return SessionDto.From(session);

@@ -70,3 +70,20 @@ export function decide(previous: string | null, current: string | null, autoStar
   }
   return autoStart ? 'start' : 'ask';
 }
+
+/** Sent to the renderer (IpcEvents.meetingDetected) once the user agreed, or auto-start applies. */
+export interface MeetingDetectedEvent {
+  app: string;
+  autoStart: boolean;
+}
+
+/**
+ * NFR-12: the renderer is only told to go ahead after the user clicked "Start InterviewCopilot"
+ * (autoStart false: it shows a picker) or when auto-start is on (autoStart true).
+ */
+export function meetingEventFor(decision: MeetingDecision, app: string, userAccepted: boolean): MeetingDetectedEvent | null {
+  if (decision === 'start') {
+    return { app, autoStart: true };
+  }
+  return decision === 'ask' && userAccepted ? { app, autoStart: false } : null;
+}

@@ -18,4 +18,11 @@ contextBridge.exposeInMainWorld('interviewCopilot', {
   stopCapture: () => ipcRenderer.invoke('capture:stop'),
   getCaptureStatus: () => ipcRenderer.invoke('capture:status'),
   openDataFolder: () => ipcRenderer.invoke('storage:open-folder'),
+  onMeetingDetected: (callback: (event: { app: string; autoStart: boolean }) => void) => {
+    const listener = (_event: unknown, payload: { app: string; autoStart: boolean }) => callback(payload);
+    ipcRenderer.on('meeting:detected', listener);
+    return () => {
+      ipcRenderer.removeListener('meeting:detected', listener);
+    };
+  },
 });

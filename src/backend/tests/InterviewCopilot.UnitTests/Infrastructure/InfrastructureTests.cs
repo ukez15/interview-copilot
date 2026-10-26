@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using FluentAssertions;
+using InterviewCopilot.Application.Practice;
 using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Application.Transcripts;
 using InterviewCopilot.Domain.Enums;
@@ -117,13 +118,16 @@ public class InfrastructureTests
             SessionMode.LiveInterview,
             DateTimeOffset.UtcNow,
             [new TranscriptEntryDto(1_000, Speaker.Interviewer, "Why Acme?"), new TranscriptEntryDto(3_000, Speaker.Candidate, "Because…")],
-            [new AnswerEntryDto(DateTimeOffset.UtcNow, "Why Acme?", QuestionType.Experience, 1, "Suggested")]);
+            [new AnswerEntryDto(DateTimeOffset.UtcNow, "Why Acme?", QuestionType.Experience, 1, "Suggested")],
+            [new PracticeAttemptDto(Guid.NewGuid(), "Why C#?", "Because it is typed.", 8, "Good structure.", DateTimeOffset.UtcNow)]);
 
         var pdf = new QuestPdfTranscriptExporter().Export(transcript);
-        var empty = new QuestPdfTranscriptExporter().Export(transcript with { Entries = [], Answers = [] });
+        var withoutPractice = new QuestPdfTranscriptExporter().Export(transcript with { Attempts = [] });
+        var empty = new QuestPdfTranscriptExporter().Export(transcript with { Entries = [], Answers = [], Attempts = [] });
 
         Encoding.ASCII.GetString(pdf, 0, 4).Should().Be("%PDF");
         empty.Should().NotBeEmpty();
+        pdf.Length.Should().BeGreaterThan(withoutPractice.Length); // the Practice section adds content
     }
 
     [Fact]
