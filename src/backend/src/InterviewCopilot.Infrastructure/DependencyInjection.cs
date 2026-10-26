@@ -1,3 +1,4 @@
+using InterviewCopilot.Application.Audio;
 using InterviewCopilot.Application.Auth;
 using InterviewCopilot.Application.Common.Interfaces;
 using InterviewCopilot.Application.Documents;
@@ -62,27 +63,16 @@ public static class DependencyInjection
             http.Timeout = TimeSpan.FromSeconds(5);
         });
 
-        AddSpeechToText(services, configuration);
+        AddSpeechToText(services);
         return services;
     }
 
-    private static void AddSpeechToText(IServiceCollection services, IConfiguration configuration)
+    private static void AddSpeechToText(IServiceCollection services)
     {
-        var transcription = configuration.GetSection(TranscriptionOptions.SectionName).Get<TranscriptionOptions>()
-            ?? new TranscriptionOptions();
-
-        var useDeepgram = transcription.Providers.Deepgram.Enabled
-            && string.Equals(transcription.Provider, ProviderNames.Deepgram, StringComparison.OrdinalIgnoreCase);
-
-        if (useDeepgram)
-        {
-            services.AddHttpClient<ISpeechToTextProvider, DeepgramSpeechToTextProvider>();
-        }
-        else
-        {
-            services.AddSingleton<ISpeechToTextProvider, WhisperSpeechToTextProvider>();
-        }
-
+        // Whisper is always the batch provider. Deepgram is streaming-only (DeepgramStreamingSink); the factory
+        // below only opens a socket when the sink asks, and the sink asks only for sessions routed to Deepgram.
+        services.AddSingleton<ISpeechToTextProvider, WhisperSpeechToTextProvider>();
+        services.AddSingleton<IDeepgramConnectionFactory, ClientWebSocketDeepgramConnectionFactory>();
         services.AddSingleton<IWhisperModelSource, GgmlWhisperModelSource>();
         services.AddSingleton<WhisperModelManager>();
         services.AddSingleton<IWhisperModelStatus>(provider => provider.GetRequiredService<WhisperModelManager>());

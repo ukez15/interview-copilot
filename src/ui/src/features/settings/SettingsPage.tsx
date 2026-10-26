@@ -13,6 +13,7 @@ import { clampOpacity, OVERLAY_OPACITY } from '@/lib/utils';
 import { DEFAULT_SETTINGS, type DesktopSettings } from '@/platform';
 import type { ProviderInfo, Providers } from '@/types/api';
 import { SpeechModelCard } from './SpeechModelCard';
+import { SpeechToTextCard } from './SpeechToTextCard';
 
 export function SettingsPage() {
   const { api, platform } = useApp();
@@ -86,6 +87,7 @@ export function SettingsPage() {
 
       <PrivacyCard />
       <SpeechModelCard />
+      {providers && <SpeechToTextCard providers={providers.speechToText} />}
       <ModelPicker />
 
       <Card className="grid gap-4">
@@ -97,7 +99,7 @@ export function SettingsPage() {
         )}
         {providers && (
           <>
-            <ProviderList title="Speech-to-text" providers={providers.speechToText} />
+            <ProviderList title="Speech-to-text" providers={providers.speechToText} keyField={false} />
             <ProviderList title="AI model" providers={providers.llm} />
           </>
         )}
@@ -108,7 +110,8 @@ export function SettingsPage() {
   );
 }
 
-function ProviderList({ title, providers }: { title: string; providers: ProviderInfo[] }) {
+/** `keyField` is off for speech-to-text: its key lives in the Speech-to-text card. */
+function ProviderList({ title, providers, keyField = true }: { title: string; providers: ProviderInfo[]; keyField?: boolean }) {
   return (
     <section className="grid gap-2">
       <h3 className="font-medium">{title}</h3>
@@ -117,7 +120,7 @@ function ProviderList({ title, providers }: { title: string; providers: Provider
           <div className="text-sm">
             {provider.displayName} {provider.isDefault && <span className="text-muted-foreground">(default)</span>}
           </div>
-          {provider.requiresApiKey && <ApiKeyField provider={provider.name} />}
+          {keyField && provider.requiresApiKey && <ApiKeyField provider={provider.name} />}
         </div>
       ))}
     </section>

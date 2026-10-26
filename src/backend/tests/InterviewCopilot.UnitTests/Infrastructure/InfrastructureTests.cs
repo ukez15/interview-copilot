@@ -86,34 +86,6 @@ public class InfrastructureTests
     }
 
     [Fact]
-    public async Task Should_TranscribeWithDeepgram_When_EnabledAndKeyGiven()
-    {
-        var handler = new StubHandler(HttpStatusCode.OK, """{"results":{"channels":[{"alternatives":[{"transcript":" Hi there "}]}]}}""");
-        var provider = Deepgram(handler, enabled: true);
-
-        var result = await provider.TranscribeAsync(Chunk(), "dg-key", Ct);
-
-        result.Text.Should().Be("Hi there");
-        handler.LastRequest!.Headers.Authorization!.Scheme.Should().Be("Token");
-        handler.LastRequest.RequestUri!.Query.Should().Contain("model=nova-3");
-        provider.Name.Should().Be(ProviderNames.Deepgram);
-    }
-
-    [Theory]
-    [InlineData(false, "dg-key", HttpStatusCode.OK, "*disabled*")]
-    [InlineData(true, null, HttpStatusCode.OK, "*API key*")]
-    [InlineData(true, "bad", HttpStatusCode.Unauthorized, "*rejected*")]
-    [InlineData(true, "dg-key", HttpStatusCode.InternalServerError, "*500*")]
-    public async Task Should_FailClearly_When_DeepgramCannotBeUsed(bool enabled, string? key, HttpStatusCode status, string message)
-    {
-        var provider = Deepgram(new StubHandler(status, "{}"), enabled);
-
-        var act = () => provider.TranscribeAsync(Chunk(), key, Ct);
-
-        await act.Should().ThrowAsync<TranscriptionUnavailableException>().WithMessage(message);
-    }
-
-    [Fact]
     public async Task Should_ExtractPlainTextAndMarkdown_Only()
     {
         var extractor = new PlainTextExtractor();
@@ -185,15 +157,6 @@ public class InfrastructureTests
 
     private static LlmRequest Request() =>
         new("llama3.2:3b", [new LlmMessage(LlmRole.System, "rules"), new LlmMessage(LlmRole.User, "q"), new LlmMessage(LlmRole.Assistant, "a")], 0.3);
-
-    private static AudioChunk Chunk() => new(Speaker.Interviewer, new byte[] { 0, 0, 1, 1 }, 16_000, 0);
-
-    private static DeepgramSpeechToTextProvider Deepgram(StubHandler handler, bool enabled)
-    {
-        var options = new TranscriptionOptions();
-        options.Providers.Deepgram.Enabled = enabled;
-        return new DeepgramSpeechToTextProvider(new HttpClient(handler), Options.Create(options));
-    }
 
     private sealed class StubHandler : HttpMessageHandler
     {
