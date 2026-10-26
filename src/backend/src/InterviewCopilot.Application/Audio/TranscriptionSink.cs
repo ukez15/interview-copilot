@@ -74,6 +74,12 @@ public sealed class TranscriptionSink : IAudioFrameSink, IAudioStreamClock
             pipeline.End();
         }
 
+        // A reconnected stream restarts its clock at 0, as its segment times always have.
+        foreach (var speaker in Enum.GetValues<Speaker>())
+        {
+            _received.TryRemove((sessionId, speaker), out _);
+        }
+
         return ValueTask.CompletedTask;
     }
 

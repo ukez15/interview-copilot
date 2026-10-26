@@ -66,6 +66,20 @@ public sealed class TranscriptionSinkGateTests
     }
 
     [Fact]
+    public async Task Should_RestartTheClock_When_TheStreamEnds()
+    {
+        var sink = Sink();
+        var session = Guid.NewGuid();
+        await SendAsync(sink, session, Speaker.Candidate, 3);
+
+        await sink.OnStreamEndedAsync(session, Ct);
+
+        sink.PositionMs(session, Speaker.Candidate).Should().Be(0);
+        await SendAsync(sink, session, Speaker.Candidate, 1);
+        sink.PositionMs(session, Speaker.Candidate).Should().Be(100);
+    }
+
+    [Fact]
     public async Task Should_CountDeepgramSessionsOnTheClock()
     {
         var sink = Sink(deepgram: true);
