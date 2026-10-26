@@ -7,7 +7,6 @@ using InterviewCopilot.Application.Sessions;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
 using InterviewCopilot.Domain.Exceptions;
-using InterviewCopilot.UnitTests.Audio;
 using InterviewCopilot.UnitTests.Services;
 using Microsoft.Extensions.Options;
 

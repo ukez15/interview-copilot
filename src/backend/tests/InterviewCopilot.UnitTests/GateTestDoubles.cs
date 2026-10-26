@@ -1,7 +1,7 @@
 using InterviewCopilot.Application.Audio;
 using InterviewCopilot.Domain.Enums;
 
-namespace InterviewCopilot.UnitTests.Audio;
+namespace InterviewCopilot.UnitTests;
 
 /// <summary>A gate the test opens and closes by hand.</summary>
 internal sealed class SwitchGate : IAudioCaptureGate
