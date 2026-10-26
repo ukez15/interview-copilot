@@ -84,6 +84,16 @@ export interface TranscriptAnswer {
   text: string;
 }
 
+/** A scored mock-interview answer (#26). */
+export interface PracticeAttempt {
+  id: string;
+  question: string;
+  answerText: string;
+  score: number;
+  feedback: string;
+  createdAt: string;
+}
+
 export interface Transcript {
   sessionId: string;
   title: string;
@@ -91,6 +101,7 @@ export interface Transcript {
   createdAt: string;
   entries: TranscriptEntry[];
   answers: TranscriptAnswer[];
+  attempts: PracticeAttempt[];
 }
 
 export interface ProviderInfo {

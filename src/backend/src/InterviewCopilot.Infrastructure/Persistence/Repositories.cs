@@ -73,3 +73,19 @@ internal sealed class TranscriptRepository(InterviewCopilotDbContext db) : ITran
 
     public void AddAnswer(SuggestedAnswer answer) => db.SuggestedAnswers.Add(answer);
 }
+
+internal sealed class PracticeAttemptRepository(InterviewCopilotDbContext db) : IPracticeAttemptRepository
+{
+    public async Task<IReadOnlyList<PracticeAttempt>> ListAsync(Guid sessionId, CancellationToken cancellationToken)
+    {
+        var attempts = await db.PracticeAttempts
+            .Where(a => a.SessionId == sessionId)
+            .AsNoTracking()
+            .ToListAsync(cancellationToken);
+
+        // SQLite can't order DateTimeOffset values in SQL, so order here.
+        return [.. attempts.OrderBy(a => a.CreatedAt)];
+    }
+
+    public void Add(PracticeAttempt attempt) => db.PracticeAttempts.Add(attempt);
+}

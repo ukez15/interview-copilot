@@ -48,6 +48,15 @@ public interface IPairedBrowserRepository
     void Add(PairedBrowser browser);
 }
 
+/// <summary>Scored answers from mock interview mode (#26).</summary>
+public interface IPracticeAttemptRepository
+{
+    /// <summary>Returns the session's attempts, oldest first.</summary>
+    Task<IReadOnlyList<PracticeAttempt>> ListAsync(Guid sessionId, CancellationToken cancellationToken);
+
+    void Add(PracticeAttempt attempt);
+}
+
 public interface IUnitOfWork
 {
     Task SaveChangesAsync(CancellationToken cancellationToken);

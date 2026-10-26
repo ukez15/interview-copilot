@@ -152,6 +152,14 @@ describe('SessionPage', () => {
     expect(await screen.findByText('Export failed here')).toBeInTheDocument();
   });
 
+  it('shows the practice panel instead of the live assistant in mock interviews', async () => {
+    const { api } = fakeApi((url) => (url.endsWith('/practice/attempts') ? json([]) : json({ ...sampleSession, mode: 'MockInterview' })));
+    renderWithApp(<SessionPage />, { api, ...route });
+
+    expect(await screen.findByRole('button', { name: 'Next question' })).toBeInTheDocument();
+    expect(screen.queryByText('Live assistant')).not.toBeInTheDocument();
+  });
+
   it('shows a not-found error', async () => {
     const { api } = fakeApi(() => json({ detail: 'Session not found.' }, 404));
     renderWithApp(<SessionPage />, { api, ...route });

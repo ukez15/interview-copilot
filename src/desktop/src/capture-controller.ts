@@ -15,6 +15,8 @@ export interface CaptureControllerDeps {
   getToken: () => string | null;
   getMicDeviceId: () => Promise<string | null>;
   backendUrl: string;
+  /** Used for the session lookup; defaults to the global `fetch`. */
+  fetchImpl?: typeof fetch;
 }
 
 /**
@@ -41,7 +43,8 @@ export class CaptureController {
       throw new Error('Sign in before starting capture.');
     }
     this.stop();
-    this.config = { sessionId, token, micDeviceId: await this.deps.getMicDeviceId(), backendUrl: this.deps.backendUrl };
+    const micOnly = await this.isMockInterview(sessionId, token);
+    this.config = { sessionId, token, micDeviceId: await this.deps.getMicDeviceId(), backendUrl: this.deps.backendUrl, micOnly };
     this.current = { state: 'connecting', interviewer: false, mic: false, message: null };
     const window = this.deps.createWindow();
     window.onClosed(() => {
@@ -55,6 +58,22 @@ export class CaptureController {
     });
     this.window = window;
     return this.current;
+  }
+
+  /** Mock interviews capture the microphone only. Any lookup failure falls back to normal capture. */
+  private async isMockInterview(sessionId: string, token: string): Promise<boolean> {
+    try {
+      const response = await (this.deps.fetchImpl ?? fetch)(`${this.deps.backendUrl}/api/sessions/${sessionId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        return false;
+      }
+      const session = (await response.json()) as { mode?: unknown };
+      return session.mode === 'MockInterview';
+    } catch {
+      return false;
+    }
   }
 
   stop(): CaptureStatus {
