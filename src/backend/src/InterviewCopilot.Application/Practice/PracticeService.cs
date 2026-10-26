@@ -1,4 +1,5 @@
 using System.Text;
+using InterviewCopilot.Application.Audio;
 using InterviewCopilot.Application.Common.Exceptions;
 using InterviewCopilot.Application.Common.Interfaces;
 using InterviewCopilot.Application.Providers;
@@ -10,7 +11,10 @@ using Microsoft.Extensions.Options;
 
 namespace InterviewCopilot.Application.Practice;
 
-public sealed record PracticeQuestionDto(string Question);
+/// <summary>The next question, plus where its answer starts in the candidate's audio stream (#78).</summary>
+/// <param name="Question">The question to show.</param>
+/// <param name="AnswerFromMs">Candidate speech that started before this position (ms) isn't part of the answer.</param>
+public sealed record PracticeQuestionDto(string Question, long AnswerFromMs = 0);
 
 public sealed record PracticeAttemptDto(Guid Id, string Question, string AnswerText, int Score, string Feedback, DateTimeOffset CreatedAt)
 {
@@ -30,7 +34,8 @@ public sealed class PracticeService(
     ILlmProviderResolver llmProviders,
     IOptions<LlmOptions> llmOptions,
     PracticeAnswerCollector collector,
-    TimeProvider clock)
+    TimeProvider clock,
+    IAudioStreamClock audioClock)
 {
     /// <summary>Extra tries when the model's score reply can't be parsed.</summary>
     public const int ScoreRetries = 1;
@@ -56,8 +61,10 @@ public sealed class PracticeService(
             throw new LlmUnavailableException(NoQuestionMessage);
         }
 
-        collector.Open(sessionId, question);
-        return new PracticeQuestionDto(question);
+        // The answer starts now, as the question is shown: speech from while it was being written doesn't count.
+        var answerFromMs = audioClock.PositionMs(sessionId, Speaker.Candidate);
+        collector.Open(sessionId, question, answerFromMs);
+        return new PracticeQuestionDto(question, answerFromMs);
     }
 
     public async Task<PracticeAttemptDto> FinishAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)

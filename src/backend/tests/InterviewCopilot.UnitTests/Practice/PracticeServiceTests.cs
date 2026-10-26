@@ -7,6 +7,7 @@ using InterviewCopilot.Application.Sessions;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
 using InterviewCopilot.Domain.Exceptions;
+using InterviewCopilot.UnitTests.Audio;
 using InterviewCopilot.UnitTests.Services;
 using Microsoft.Extensions.Options;
 
@@ -21,6 +22,7 @@ public class PracticeServiceTests
     private readonly InMemoryPreferences _prefs = new();
     private readonly PracticeAnswerCollector _collector = new();
     private readonly QueueLlm _llm = new();
+    private readonly FixedStreamClock _audioClock = new();
     private readonly PracticeService _service;
     private readonly Session _session;
 
@@ -36,7 +38,8 @@ public class PracticeServiceTests
             new LlmProviderResolver([_llm]),
             Options.Create(new LlmOptions { Model = "default-model", Temperature = 0.3 }),
             _collector,
-            new FixedClock());
+            new FixedClock(),
+            _audioClock);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -66,6 +69,20 @@ public class PracticeServiceTests
         next.Question.Should().Be("Tell me about yourself.");
         _llm.Requests.Single().Model.Should().Be("default-model");
         _collector.Take(_session.Id)!.Question.Should().Be("Tell me about yourself.");
+    }
+
+    [Fact]
+    public async Task Should_StartTheAnswerWhereTheMicStreamIs_When_TheQuestionIsShown()
+    {
+        _audioClock.Position = 42_000;
+        _llm.Replies.Enqueue(["Why us?"]);
+
+        var next = await _service.NextAsync(Owner, _session.Id, Ct);
+        await _collector.OnSegmentAsync(TranscriptSegment.Create(_session.Id, Speaker.Candidate, 30_000, 31_000, "said while it was thinking"), Ct);
+        await _collector.OnSegmentAsync(TranscriptSegment.Create(_session.Id, Speaker.Candidate, 43_000, 44_000, "my answer"), Ct);
+
+        next.AnswerFromMs.Should().Be(42_000);
+        _collector.Take(_session.Id).Should().Be(new CollectedAnswer("Why us?", "my answer", 42_000));
     }
 
     [Theory]

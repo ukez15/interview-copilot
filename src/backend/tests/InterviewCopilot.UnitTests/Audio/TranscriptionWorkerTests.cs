@@ -24,10 +24,11 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
     private readonly TranscriptionWorker _worker;
     private readonly Guid _sessionId = Guid.NewGuid();
     private readonly RecordingListener _listener = new();
+    private readonly SwitchGate _gate = new();
 
     public TranscriptionWorkerTests()
     {
-        _sink = new TranscriptionSink(Options.Create(new VadOptions()), new FixedRouter(deepgram: false));
+        _sink = new TranscriptionSink(Options.Create(new VadOptions()), new FixedRouter(deepgram: false), _gate);
         var services = new ServiceCollection();
         services.AddSingleton<ITranscriptRepository>(_store);
         services.AddSingleton<IUnitOfWork>(_store);
@@ -147,6 +148,22 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
         chunk.SampleRate.Should().Be(16_000);
         chunk.StartMs.Should().Be(300);
         chunk.Pcm16.Length.Should().Be(4 * FrameBytes);
+    }
+
+    [Fact]
+    public async Task Should_EndTheSpeechAtAGap_AndTimeEachSegmentByItsStreamPosition()
+    {
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Candidate, loudFrames: 4, silentFrames: 0); // frames 0-3, still mid-speech
+        _gate.Accept = false;
+        await SendAsync(Speaker.Candidate, loudFrames: 5, silentFrames: 0); // frames 4-8, dropped by the gate
+        _gate.Accept = true;
+        await SendAsync(Speaker.Candidate, loudFrames: 4, silentFrames: 6); // frames 9-12, then a pause
+        await _publisher.WaitForAsync(2);
+
+        _stt.Chunks.Select(c => c.StartMs).Should().Equal(0, 900);
+        _stt.Chunks.Should().AllSatisfy(c => c.Pcm16.Length.Should().Be(4 * FrameBytes));
     }
 
     [Fact]

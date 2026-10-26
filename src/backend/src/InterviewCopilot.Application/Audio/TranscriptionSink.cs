@@ -8,42 +8,56 @@ namespace InterviewCopilot.Application.Audio;
 /// <summary>
 /// Queues incoming frames for transcription without ever blocking the audio socket: each session gets a bounded
 /// queue that drops its oldest frames when the worker falls behind. <see cref="TranscriptionWorker"/> drains it.
+/// Every frame is numbered on arrival, so segment times stay true stream positions even when frames are dropped.
 /// </summary>
-public sealed class TranscriptionSink : IAudioFrameSink
+public sealed class TranscriptionSink : IAudioFrameSink, IAudioStreamClock
 {
     private readonly VadOptions _options;
     private readonly ISpeechToTextRouter _router;
+    private readonly IAudioCaptureGate _gate;
     private readonly ConcurrentDictionary<Guid, SessionPipeline> _pipelines = new();
+    private readonly ConcurrentDictionary<(Guid SessionId, Speaker Speaker), StreamCounter> _received = new();
     private readonly Channel<SessionPipeline> _newPipelines = Channel.CreateUnbounded<SessionPipeline>(
         new UnboundedChannelOptions { SingleReader = true });
 
     /// <summary>Creates the sink.</summary>
     /// <param name="options">Voice-activity settings (queue size and thresholds).</param>
     /// <param name="router">Says which sessions go to Deepgram streaming instead; this sink skips those.</param>
-    public TranscriptionSink(IOptions<VadOptions> options, ISpeechToTextRouter router)
+    /// <param name="gate">Says which frames are worth transcribing (#78); none given means all of them.</param>
+    public TranscriptionSink(IOptions<VadOptions> options, ISpeechToTextRouter router, IAudioCaptureGate? gate = null)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(router);
         _options = options.Value;
         _router = router;
+        _gate = gate ?? OpenAudioCaptureGate.Instance;
     }
 
     internal ChannelReader<SessionPipeline> NewPipelines => _newPipelines.Reader;
 
-    /// <summary>Copies the frame into the session's queue and returns immediately. Deepgram-routed sessions are skipped.</summary>
+    /// <inheritdoc />
+    public long PositionMs(Guid sessionId, Speaker speaker) =>
+        _received.TryGetValue((sessionId, speaker), out var counter) ? counter.Value * VadOptions.FrameMs : 0;
+
+    /// <summary>
+    /// Numbers the frame, then copies it into the session's queue and returns immediately. Deepgram-routed
+    /// sessions and frames the gate turns away are skipped, but still counted, so the stream clock keeps time.
+    /// </summary>
     /// <param name="sessionId">The session the audio belongs to.</param>
     /// <param name="frame">One 100 ms frame; the sink copies it, so the caller may reuse its buffer.</param>
-    /// <param name="cancellationToken">Cancels the routing lookup; enqueueing never waits.</param>
+    /// <param name="cancellationToken">Cancels the routing and gate lookups; enqueueing never waits.</param>
     /// <returns>A task that completes once the frame is queued (or skipped).</returns>
     public async ValueTask OnFrameAsync(Guid sessionId, AudioFrame frame, CancellationToken cancellationToken)
     {
-        if (await _router.UsesDeepgramAsync(sessionId, cancellationToken))
+        var index = _received.GetOrAdd((sessionId, frame.Speaker), _ => new StreamCounter()).Next();
+        if (await _router.UsesDeepgramAsync(sessionId, cancellationToken)
+            || !await _gate.AcceptsAsync(sessionId, frame.Speaker, cancellationToken))
         {
             return;
         }
 
         var pipeline = PipelineFor(sessionId);
-        pipeline.Frames.Writer.TryWrite(new AudioFrame(frame.Speaker, frame.Pcm16.ToArray()));
+        pipeline.Frames.Writer.TryWrite(new QueuedFrame(new AudioFrame(frame.Speaker, frame.Pcm16.ToArray()), index));
     }
 
     /// <summary>
@@ -95,6 +109,19 @@ public sealed class TranscriptionSink : IAudioFrameSink
     }
 }
 
+/// <summary>A queued frame and its position in the speaker's stream (0 for the first frame received).</summary>
+internal readonly record struct QueuedFrame(AudioFrame Frame, long Index);
+
+/// <summary>A thread-safe count of one speaker's frames; <see cref="Next"/> returns each frame's index.</summary>
+internal sealed class StreamCounter
+{
+    private long _count;
+
+    public long Value => Interlocked.Read(ref _count);
+
+    public long Next() => Interlocked.Increment(ref _count) - 1;
+}
+
 /// <summary>One session's frame queue plus the per-speaker buffers that only its drain loop touches.</summary>
 internal sealed class SessionPipeline
 {
@@ -110,12 +137,12 @@ internal sealed class SessionPipeline
         _options = options;
         Frames = Channel.CreateBounded(
             new BoundedChannelOptions(options.QueueFrames) { FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true },
-            (AudioFrame _) => Interlocked.Increment(ref _dropped));
+            (QueuedFrame _) => Interlocked.Increment(ref _dropped));
     }
 
     public Guid SessionId { get; }
 
-    public Channel<AudioFrame> Frames { get; }
+    public Channel<QueuedFrame> Frames { get; }
 
     public long DroppedFrames => Interlocked.Read(ref _dropped);
 

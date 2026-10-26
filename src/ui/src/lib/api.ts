@@ -15,6 +15,7 @@ import type {
   StorageInfo,
   SessionSettingsInput,
   PracticeAttempt,
+  PracticeQuestion,
   Transcript,
   WhisperModel,
 } from '@/types/api';
@@ -125,9 +126,9 @@ export class ApiClient {
   }
 
   /** #26: asks the next mock-interview question and opens it for the candidate's spoken answer. */
-  async practiceNext(sessionId: string): Promise<string> {
-    const body = await this.json<{ question: string }>(`/api/sessions/${sessionId}/practice/next`, { method: 'POST' });
-    return body.question;
+  async practiceNext(sessionId: string): Promise<PracticeQuestion> {
+    const body = await this.json<Partial<PracticeQuestion>>(`/api/sessions/${sessionId}/practice/next`, { method: 'POST' });
+    return { question: body.question ?? '', answerFromMs: body.answerFromMs ?? 0 };
   }
 
   /** #26: scores the answer heard since the question was asked and saves the attempt. */

@@ -79,6 +79,46 @@ public class PracticeAnswerCollectorTests
     }
 
     [Fact]
+    public async Task Should_IgnoreSpeechThatStartedBeforeTheQuestionWasShown()
+    {
+        var collector = new PracticeAnswerCollector();
+        var id = Guid.NewGuid();
+        collector.Open(id, "Q", fromMs: 5_000);
+
+        await collector.OnSegmentAsync(TranscriptSegment.Create(id, Speaker.Candidate, 4_000, 4_900, "said while waiting"), Ct);
+        await collector.OnSegmentAsync(TranscriptSegment.Create(id, Speaker.Candidate, 5_000, 6_000, "the answer"), Ct);
+
+        collector.Take(id).Should().Be(new CollectedAnswer("Q", "the answer", 5_000));
+    }
+
+    [Fact]
+    public void Should_ReportWhetherAQuestionIsOpen()
+    {
+        var collector = new PracticeAnswerCollector();
+        var id = Guid.NewGuid();
+        collector.IsOpen(id).Should().BeFalse();
+
+        collector.Open(id, "Q");
+        collector.IsOpen(id).Should().BeTrue();
+
+        collector.Take(id);
+        collector.IsOpen(id).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Should_KeepTheAnswerStart_When_ATakenAnswerIsRestored()
+    {
+        var collector = new PracticeAnswerCollector();
+        var id = Guid.NewGuid();
+        collector.Open(id, "Q", fromMs: 3_000);
+        collector.Restore(id, collector.Take(id)!);
+
+        await collector.OnSegmentAsync(TranscriptSegment.Create(id, Speaker.Candidate, 2_000, 2_500, "too early"), Ct);
+
+        collector.Take(id).Should().Be(new CollectedAnswer("Q", string.Empty, 3_000));
+    }
+
+    [Fact]
     public void Should_RejectBlankQuestion()
     {
         var act = () => new PracticeAnswerCollector().Open(Guid.NewGuid(), " ");

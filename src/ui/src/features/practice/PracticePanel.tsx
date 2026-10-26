@@ -32,6 +32,8 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
   const [error, setError] = useState<string | null>(null);
   const open = useRef(false);
   const finishing = useRef(false);
+  // Where this answer starts in the mic stream; speech that started earlier but was transcribed late isn't it (#78).
+  const answerFromMs = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -60,8 +62,11 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
 
   const onEvent = useCallback(
     (event: SessionEvent) => {
-      const data = (event.data ?? {}) as { speaker?: string; text?: string };
+      const data = (event.data ?? {}) as { speaker?: string; text?: string; startMs?: number };
       if (event.type !== 'transcript.segment' || data.speaker !== 'Candidate' || !data.text || !open.current || finishing.current) {
+        return;
+      }
+      if ((data.startMs ?? 0) < answerFromMs.current) {
         return;
       }
       const text = data.text;
@@ -80,8 +85,9 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
     setError(null);
     try {
       const asked = await api.practiceNext(sessionId);
+      answerFromMs.current = asked.answerFromMs;
       open.current = true;
-      setQuestion(asked);
+      setQuestion(asked.question);
       setSegments([]);
       setResult(null);
     } catch (err) {

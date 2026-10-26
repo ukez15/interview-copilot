@@ -110,6 +110,21 @@ describe('PracticePanel', () => {
     expect(ctx.calls.finish).toBe(1);
   });
 
+  it('ignores speech that started before the question was shown, even when it arrives late (#78)', async () => {
+    const ctx = setup({ next: () => json({ question: 'Why us?', answerFromMs: 42_000 }) });
+    await mount(ctx);
+    fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
+    await flush();
+
+    act(() =>
+      FakeWebSocket.last.emit({ id: 1, type: 'transcript.segment', data: { speaker: 'Candidate', text: 'said while waiting', startMs: 30_000 } }),
+    );
+    act(() => FakeWebSocket.last.emit({ id: 2, type: 'transcript.segment', data: { speaker: 'Candidate', text: 'my answer', startMs: 42_000 } }));
+
+    expect(screen.queryByText('said while waiting')).not.toBeInTheDocument();
+    expect(screen.getByText('my answer')).toBeInTheDocument();
+  });
+
   it('shows the exact scored answer in place of the live lines once scored', async () => {
     const ctx = setup();
     await mount(ctx);
