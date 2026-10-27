@@ -1,5 +1,7 @@
 using FluentAssertions;
+using InterviewCopilot.Application.Copilot;
 using InterviewCopilot.Application.Practice;
+using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
 
@@ -18,23 +20,49 @@ public class PracticePromptBuilderTests
     [Fact]
     public void Should_AskNextQuestion_WithoutRepeating()
     {
-        var messages = PracticePromptBuilder.NextQuestion(NewSession(), ["Tell me about yourself."]);
+        var messages = PracticePromptBuilder.NextQuestion(NewSession(), ["Tell me about yourself."], ProviderNames.Ollama);
 
         messages[0].Content.Should().Contain("interviewer").And.Contain("Senior backend role");
         messages[1].Content.Should().Contain("<document name=\"jd.txt\">").And.Contain("- Tell me about yourself.");
     }
 
-    [Fact]
-    public void Should_KeepQuestionDocumentsWithinTheQuestionBudget_And_ScoringWithinTheDefault()
+    private static Session SessionWithLongDocument()
     {
         var session = Session.Create(Guid.NewGuid(), "Mock", SessionMode.MockInterview, FixedClock.Default);
         session.AttachDocument("cv.txt", new string('z', 10_000), FixedClock.Default);
+        return session;
+    }
 
-        var asked = PracticePromptBuilder.NextQuestion(session, []);
+    [Fact]
+    public void Should_KeepQuestionDocumentsWithinTheQuestionBudget_And_ScoringWithinTheDefault()
+    {
+        var session = SessionWithLongDocument();
+
+        var asked = PracticePromptBuilder.NextQuestion(session, [], ProviderNames.Ollama);
         var scored = PracticePromptBuilder.ScoreAnswer(session, "Why?", "Yes.");
 
         asked[1].Content.Count(c => c == 'z').Should().BeLessThanOrEqualTo(PracticePromptBuilder.QuestionDocumentBudget);
         scored[1].Content.Count(c => c == 'z').Should().BeGreaterThan(PracticePromptBuilder.QuestionDocumentBudget);
+    }
+
+    [Theory]
+    [InlineData(ProviderNames.Anthropic)]
+    [InlineData(ProviderNames.OpenAi)]
+    [InlineData(ProviderNames.Google)]
+    public void Should_GiveCloudModelsTheFullDocumentBudget_When_Asking(string provider)
+    {
+        var asked = PracticePromptBuilder.NextQuestion(SessionWithLongDocument(), [], provider);
+
+        PracticePromptBuilder.QuestionDocumentBudgetFor(provider).Should().Be(DocumentContextSelector.DefaultCharacterBudget);
+        asked[1].Content.Count(c => c == 'z').Should().BeGreaterThan(PracticePromptBuilder.QuestionDocumentBudget);
+    }
+
+    [Theory]
+    [InlineData("ollama")]
+    [InlineData("Ollama")]
+    public void Should_LimitOnlyTheLocalModel(string provider)
+    {
+        PracticePromptBuilder.QuestionDocumentBudgetFor(provider).Should().Be(PracticePromptBuilder.QuestionDocumentBudget);
     }
 
     [Fact]

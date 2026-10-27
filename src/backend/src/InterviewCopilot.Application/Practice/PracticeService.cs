@@ -43,6 +43,9 @@ public sealed class PracticeService(
     TimeProvider clock,
     IAudioStreamClock audioClock)
 {
+    /// <summary>Practice runs on the local model only in this wave; it also sets the question's document budget.</summary>
+    private const string PracticeProvider = ProviderNames.Ollama;
+
     /// <summary>Extra tries when the model's score reply can't be parsed.</summary>
     public const int ScoreRetries = 1;
 
@@ -61,7 +64,7 @@ public sealed class PracticeService(
         var session = await LoadLiveMockAsync(ownerId, sessionId, cancellationToken);
         var asked = await attempts.ListAsync(sessionId, cancellationToken);
         collector.Take(sessionId); // a skipped question closes, so the mic rests while the next one is written
-        var request = await RequestAsync(session, PracticePromptBuilder.NextQuestion(session, [.. asked.Select(a => a.Question)]), cancellationToken);
+        var request = await RequestAsync(session, PracticePromptBuilder.NextQuestion(session, [.. asked.Select(a => a.Question)], PracticeProvider), cancellationToken);
         return StreamQuestionAsync(sessionId, request, cancellationToken);
     }
 
@@ -146,7 +149,7 @@ public sealed class PracticeService(
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var reply = new StringBuilder();
-        await foreach (var token in llmProviders.Resolve(ProviderNames.Ollama).StreamAsync(request, cancellationToken))
+        await foreach (var token in llmProviders.Resolve(PracticeProvider).StreamAsync(request, cancellationToken))
         {
             reply.Append(token);
             yield return new PracticeQuestionPart(token);
@@ -168,7 +171,7 @@ public sealed class PracticeService(
     {
         var reply = new StringBuilder();
         var request = await RequestAsync(session, messages, cancellationToken);
-        await foreach (var token in llmProviders.Resolve(ProviderNames.Ollama).StreamAsync(request, cancellationToken))
+        await foreach (var token in llmProviders.Resolve(PracticeProvider).StreamAsync(request, cancellationToken))
         {
             reply.Append(token);
         }

@@ -142,3 +142,6 @@ thresholds or the Whisper model (yes/no).
    were the biggest cost behind the 90 s question. **Owner's decision: 2,000 characters for question
    prompts only** (`PracticePromptBuilder.QuestionDocumentBudget`). Scoring and the live assistant keep
    6,000.
+7. **Local models only (owner, 2026-10-27).** The 2,000 limit applies only when the question runs on the
+   local model (Ollama). A cloud model gets the full 6,000 (`QuestionDocumentBudgetFor`). Practice runs on
+   Ollama only in this wave, so the cloud rule matters once practice gains cloud models.

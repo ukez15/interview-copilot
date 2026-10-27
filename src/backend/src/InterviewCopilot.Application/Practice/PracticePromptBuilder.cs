@@ -13,17 +13,24 @@ public sealed record PracticeFeedback(int Score, string Feedback);
 public static partial class PracticePromptBuilder
 {
     /// <summary>
-    /// Document characters in a question prompt (#78). A small local model reads the prompt before it writes, so a
-    /// smaller budget asks sooner; scoring keeps <see cref="DocumentContextSelector.DefaultCharacterBudget"/>.
+    /// Document characters in a question prompt for a local model (#78). It reads the prompt on the user's CPU before
+    /// it writes, so a smaller budget asks sooner. Cloud models, and scoring, keep
+    /// <see cref="DocumentContextSelector.DefaultCharacterBudget"/>.
     /// </summary>
     public const int QuestionDocumentBudget = 2_000;
 
-    public static IReadOnlyList<LlmMessage> NextQuestion(Session session, IReadOnlyList<string> askedSoFar)
+    /// <summary>The question prompt's document budget for this provider: smaller only for the local model.</summary>
+    public static int QuestionDocumentBudgetFor(string provider) =>
+        string.Equals(provider, ProviderNames.Ollama, StringComparison.OrdinalIgnoreCase)
+            ? QuestionDocumentBudget
+            : DocumentContextSelector.DefaultCharacterBudget;
+
+    public static IReadOnlyList<LlmMessage> NextQuestion(Session session, IReadOnlyList<string> askedSoFar, string provider)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(askedSoFar);
         var user = new StringBuilder();
-        AppendDocuments(user, DocumentContextSelector.Select(session.Documents, "job description requirements responsibilities skills", QuestionDocumentBudget));
+        AppendDocuments(user, DocumentContextSelector.Select(session.Documents, "job description requirements responsibilities skills", QuestionDocumentBudgetFor(provider)));
         if (askedSoFar.Count > 0)
         {
             user.AppendLine("Questions already asked (don't repeat them):");
