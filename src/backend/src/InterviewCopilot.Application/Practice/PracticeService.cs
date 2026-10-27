@@ -41,11 +41,9 @@ public sealed class PracticeService(
     IOptions<LlmOptions> llmOptions,
     PracticeAnswerCollector collector,
     TimeProvider clock,
-    IAudioStreamClock audioClock)
+    IAudioStreamClock audioClock,
+    ISessionKeyStore sessionKeys)
 {
-    /// <summary>Practice runs on the local model only in this wave; it also sets the question's document budget.</summary>
-    private const string PracticeProvider = ProviderNames.Ollama;
-
     /// <summary>Extra tries when the model's score reply can't be parsed.</summary>
     public const int ScoreRetries = 1;
 
@@ -70,8 +68,9 @@ public sealed class PracticeService(
         var session = await LoadLiveMockAsync(ownerId, sessionId, cancellationToken);
         var asked = await attempts.ListAsync(sessionId, cancellationToken);
         collector.Take(sessionId); // a skipped question closes, so the mic rests while the next one is written
-        var request = await RequestAsync(session, PracticePromptBuilder.NextQuestion(session, [.. asked.Select(a => a.Question)], PracticeProvider), cancellationToken);
-        return StreamQuestionAsync(sessionId, request, cancellationToken);
+        var choice = await ChoiceAsync(session, cancellationToken);
+        var messages = PracticePromptBuilder.NextQuestion(session, [.. asked.Select(a => a.Question)], choice.Provider);
+        return StreamQuestionAsync(sessionId, llmProviders.Resolve(choice.Provider), RequestFor(session, choice, messages), cancellationToken);
     }
 
     public async Task<PracticeAttemptDto> FinishAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)
@@ -172,11 +171,12 @@ public sealed class PracticeService(
 
     private async IAsyncEnumerable<PracticeQuestionPart> StreamQuestionAsync(
         Guid sessionId,
+        ILlmProvider llm,
         LlmRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
         var reply = new StringBuilder();
-        await foreach (var token in llmProviders.Resolve(PracticeProvider).StreamAsync(request, cancellationToken))
+        await foreach (var token in llm.StreamAsync(request, cancellationToken))
         {
             reply.Append(token);
             yield return new PracticeQuestionPart(token);
@@ -196,9 +196,9 @@ public sealed class PracticeService(
 
     private async Task<string> CompleteAsync(Session session, IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken)
     {
+        var choice = await ChoiceAsync(session, cancellationToken);
         var reply = new StringBuilder();
-        var request = await RequestAsync(session, messages, cancellationToken);
-        await foreach (var token in llmProviders.Resolve(PracticeProvider).StreamAsync(request, cancellationToken))
+        await foreach (var token in llmProviders.Resolve(choice.Provider).StreamAsync(RequestFor(session, choice, messages), cancellationToken))
         {
             reply.Append(token);
         }
@@ -206,16 +206,11 @@ public sealed class PracticeService(
         return reply.ToString();
     }
 
-    private async Task<LlmRequest> RequestAsync(Session session, IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken)
-    {
-        var options = llmOptions.Value;
-        var owner = await preferences.GetAsync(session.OwnerId, cancellationToken);
+    /// <summary>The owner's chat model, as for live answers (#82): a cloud one if they chose it, else Ollama.</summary>
+    private async Task<ChatModelChoice> ChoiceAsync(Session session, CancellationToken cancellationToken) =>
+        ChatModelChoice.For(await preferences.GetAsync(session.OwnerId, cancellationToken), llmOptions.Value);
 
-        // Ollama only in this wave: the owner's model applies only when their chosen provider is Ollama (or unset).
-        var ownerUsesOllama = string.IsNullOrWhiteSpace(owner?.LlmProvider)
-            || string.Equals(owner.LlmProvider, ProviderNames.Ollama, StringComparison.OrdinalIgnoreCase);
-        var model = ownerUsesOllama && !string.IsNullOrWhiteSpace(owner?.LlmModel) ? owner.LlmModel : options.Model;
-
-        return new LlmRequest(model, messages, options.Temperature);
-    }
+    /// <summary>A request with the key handed to this session, if any; a cloud model without one says how to add it.</summary>
+    private LlmRequest RequestFor(Session session, ChatModelChoice choice, IReadOnlyList<LlmMessage> messages) =>
+        new(choice.Model, messages, llmOptions.Value.Temperature, sessionKeys.TryGet(session.Id, choice.Provider));
 }

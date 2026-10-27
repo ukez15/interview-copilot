@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Runtime.CompilerServices;
@@ -28,6 +29,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public ScriptedLlm Llm { get; } = new();
 
+    public ScriptedCloudLlm CloudLlm { get; } = new();
+
     public ScriptedStt Stt { get; } = new();
 
     public FakeWhisperModel WhisperModel { get; } = new();
@@ -56,6 +59,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         {
             services.RemoveAll<ILlmProvider>();
             services.AddSingleton<ILlmProvider>(Llm);
+            services.AddSingleton<ILlmProvider>(CloudLlm);
             services.RemoveAll<ISpeechToTextProvider>();
             services.AddSingleton<ISpeechToTextProvider>(Stt);
             services.RemoveAll<IWhisperModelStatus>();
@@ -90,6 +94,33 @@ public sealed class ScriptedLlm : ILlmProvider
         if (Fail)
         {
             throw new LlmUnavailableException("Can't reach Ollama.");
+        }
+
+        foreach (var token in Tokens)
+        {
+            await Task.Yield();
+            yield return token;
+        }
+    }
+}
+
+/// <summary>Stands in for a BYOK cloud model: records each request and, like the real ones, needs a key.</summary>
+public sealed class ScriptedCloudLlm : ILlmProvider
+{
+    public const string MissingKeyMessage = "Add your Anthropic API key in Settings.";
+
+    public string[] Tokens { get; set; } = ["Cloud ", "reply."];
+
+    public ConcurrentQueue<LlmRequest> Requests { get; } = new();
+
+    public string Name => ProviderNames.Anthropic;
+
+    public async IAsyncEnumerable<string> StreamAsync(LlmRequest request, [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        Requests.Enqueue(request);
+        if (string.IsNullOrWhiteSpace(request.ApiKey))
+        {
+            throw new LlmUnavailableException(MissingKeyMessage);
         }
 
         foreach (var token in Tokens)

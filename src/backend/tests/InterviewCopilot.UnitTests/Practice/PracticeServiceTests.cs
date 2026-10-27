@@ -21,6 +21,8 @@ public class PracticeServiceTests
     private readonly InMemoryPreferences _prefs = new();
     private readonly PracticeAnswerCollector _collector = new();
     private readonly QueueLlm _llm = new();
+    private readonly QueueLlm _cloud = new(ProviderNames.Anthropic) { NeedsKey = true };
+    private readonly InMemorySessionKeyStore _keys = new();
     private readonly FixedStreamClock _audioClock = new();
     private readonly PracticeService _service;
     private readonly Session _session;
@@ -39,11 +41,12 @@ public class PracticeServiceTests
             _store,
             _store,
             _prefs,
-            new LlmProviderResolver([_llm]),
+            new LlmProviderResolver([_llm, _cloud]),
             Options.Create(new LlmOptions { Model = "default-model", Temperature = 0.3 }),
             _collector,
             clock,
-            _audioClock);
+            _audioClock,
+            _keys);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -137,20 +140,85 @@ public class PracticeServiceTests
         _collector.Take(_session.Id).Should().Be(new CollectedAnswer("Why us?", "my answer", 42_000));
     }
 
-    [Theory]
-    [InlineData(null, "owner-model")]
-    [InlineData("ollama", "owner-model")]
-    [InlineData("anthropic", "default-model")]
-    public async Task Should_UseOwnerModel_OnlyWhenOwnerProviderIsOllama(string? provider, string expectedModel)
+    private void ChooseLlm(string? provider, string? model)
     {
         var prefs = UserPreferences.Create(Owner, FixedClock.Default);
-        prefs.SetLlm(provider, "owner-model", FixedClock.Default);
+        prefs.SetLlm(provider, model, FixedClock.Default);
         _prefs.Add(prefs);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("ollama")]
+    public async Task Should_UseTheOwnersLocalModel_WithNoKey(string? provider)
+    {
+        ChooseLlm(provider, "owner-model");
         _llm.Replies.Enqueue(["Q?"]);
 
         await AskAsync(_session.Id);
 
-        _llm.Requests.Single().Model.Should().Be(expectedModel);
+        _llm.Requests.Single().Model.Should().Be("owner-model");
+        _llm.Requests.Single().ApiKey.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Should_AskAndScoreWithTheChosenCloudModel_AndTheSessionKey()
+    {
+        ChooseLlm(ProviderNames.Anthropic, "claude-test");
+        _keys.Store(_session.Id, ProviderNames.Anthropic, "test-key");
+        _cloud.Replies.Enqueue(["Why us?"]);
+        _cloud.Replies.Enqueue([GoodReply]);
+
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "Because of the mission.");
+        var attempt = await _service.FinishAsync(Owner, _session.Id, Ct);
+
+        _llm.Requests.Should().BeEmpty("nothing goes to the local model");
+        _cloud.Requests.Should().HaveCount(2).And.OnlyContain(r => r.Model == "claude-test" && r.ApiKey == "test-key");
+        attempt.Score.Should().Be(8);
+        attempt.Feedback.Should().NotContain("test-key");
+    }
+
+    [Fact]
+    public async Task Should_GiveACloudQuestionTheFullDocumentBudget()
+    {
+        ChooseLlm(ProviderNames.Anthropic, "claude-test");
+        _keys.Store(_session.Id, ProviderNames.Anthropic, "test-key");
+        _session.AttachDocument("cv.txt", new string('z', 10_000), FixedClock.Default);
+        _cloud.Replies.Enqueue(["Q?"]);
+
+        await AskAsync(_session.Id);
+
+        _cloud.Requests.Single().Messages[1].Content.Count(c => c == 'z').Should().BeGreaterThan(PracticePromptBuilder.QuestionDocumentBudget);
+    }
+
+    [Fact]
+    public async Task Should_ShowTheProvidersMessage_AndNotFallBack_When_TheCloudKeyIsMissing()
+    {
+        ChooseLlm(ProviderNames.Anthropic, "claude-test");
+        _cloud.Replies.Enqueue(["never sent"]);
+
+        var act = () => AskAsync(_session.Id);
+
+        (await act.Should().ThrowAsync<LlmUnavailableException>()).WithMessage(QueueLlm.MissingKeyMessage);
+        _llm.Requests.Should().BeEmpty();
+        _collector.IsOpen(_session.Id).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Should_KeepTheAnswer_When_TheCloudKeyIsMissingAtScoring()
+    {
+        ChooseLlm(ProviderNames.Anthropic, "claude-test");
+        _keys.Store(_session.Id, ProviderNames.Anthropic, "test-key");
+        _cloud.Replies.Enqueue(["Why us?"]);
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "words");
+        _keys.Clear(_session.Id);
+
+        var act = () => _service.FinishAsync(Owner, _session.Id, Ct);
+
+        (await act.Should().ThrowAsync<LlmUnavailableException>()).WithMessage(QueueLlm.MissingKeyMessage);
+        _collector.IsOpen(_session.Id).Should().BeTrue("the candidate can retry once the key is back");
     }
 
     [Fact]
@@ -343,16 +411,26 @@ public class PracticeServiceTests
         await ((Func<Task>)(() => _service.NextAsync(Guid.NewGuid(), _session.Id, Ct))).Should().ThrowAsync<NotFoundException>();
     }
 
-    private sealed class QueueLlm : ILlmProvider
+    private sealed class QueueLlm(string name = ProviderNames.Ollama) : ILlmProvider
     {
+        public const string MissingKeyMessage = "Add your Anthropic API key in Settings.";
+
         public Queue<string[]> Replies { get; } = new();
 
         public List<LlmRequest> Requests { get; } = [];
 
-        public string Name => ProviderNames.Ollama;
+        /// <summary>Like the real cloud providers: no key, no reply.</summary>
+        public bool NeedsKey { get; init; }
+
+        public string Name => name;
 
         public async IAsyncEnumerable<string> StreamAsync(LlmRequest request, [EnumeratorCancellation] CancellationToken cancellationToken)
         {
+            if (NeedsKey && string.IsNullOrWhiteSpace(request.ApiKey))
+            {
+                throw new LlmUnavailableException(MissingKeyMessage);
+            }
+
             Requests.Add(request);
             foreach (var token in Replies.Dequeue())
             {

@@ -157,6 +157,29 @@ public sealed class PracticeApiTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
+    public async Task Should_AskWithTheChosenCloudModelAndSessionKey_OrStreamItsMessage_When_TheKeyIsMissing()
+    {
+        var (client, _, session) = await SessionAsync("practice-cloud", "MockInterview", start: true);
+        var (keylessClient, _, keyless) = await SessionAsync("practice-cloud-no-key", "MockInterview", start: true);
+        foreach (var user in new[] { client, keylessClient })
+        {
+            (await user.PutAsJsonAsync("/api/preferences/llm", new { Provider = "anthropic", Model = "claude-test" }, Ct)).EnsureSuccessStatusCode();
+        }
+
+        var key = $"test-{Guid.NewGuid():N}";
+        (await client.PutAsJsonAsync($"/api/sessions/{session.Id}/keys/anthropic", new { Key = key }, Ct)).EnsureSuccessStatusCode();
+        _factory.CloudLlm.Tokens = ["Why ", "the cloud?"];
+
+        var asked = await (await client.PostAsync($"/api/sessions/{session.Id}/practice/next", null, Ct)).Content.ReadAsStringAsync(Ct);
+        var refused = await (await keylessClient.PostAsync($"/api/sessions/{keyless.Id}/practice/next", null, Ct)).Content.ReadAsStringAsync(Ct);
+
+        DoneQuestion(asked).Question.Should().Be("Why the cloud?");
+        _factory.CloudLlm.Requests.Should().Contain(r => r.ApiKey == key && r.Model == "claude-test");
+        refused.Should().Contain("event: error").And.Contain(ScriptedCloudLlm.MissingKeyMessage).And.NotContain("event: done");
+        asked.Should().NotContain(key);
+    }
+
+    [Fact]
     public async Task Should_Return400AndSaveNothing_When_NoAnswerWasHeard()
     {
         var (client, _, session) = await SessionAsync("practice-empty", "MockInterview", start: true);

@@ -144,4 +144,4 @@ thresholds or the Whisper model (yes/no).
    6,000.
 7. **Local models only (owner, 2026-10-27).** The 2,000 limit applies only when the question runs on the
    local model (Ollama). A cloud model gets the full 6,000 (`QuestionDocumentBudgetFor`). Practice runs on
-   Ollama only in this wave, so the cloud rule matters once practice gains cloud models.
+   Ollama only in this wave; cloud models for practice follow in #82 (`practice-cloud-models.md`).

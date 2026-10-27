@@ -1,6 +1,6 @@
 # Practice on cloud models — ATLAS + GOTCHA brief
 
-Status: **awaiting the owner's approval**, issue #82.
+Status: **approved by the owner with the recommendations (2026-10-27)**, issue #82.
 Permanent rules: `GOTCHA-PROJECT.md` and `CLAUDE.md`.
 
 ## User story
@@ -106,3 +106,19 @@ DON'T: fall back to another provider without telling the user (yes/no). Log or s
    either; it could be a follow-up for both.
 5. **Delivery:** **Recommended:** a separate PR after #79 is merged, on branch `issue/82-practice-cloud-models`,
    so #79 can be tested and released on its own.
+
+---
+
+## What we adjusted
+
+- **The choice is a small pure record**, `ChatModelChoice.For(owner, options)`. It isn't a new service, so
+  `AnswerGenerator` keeps its constructor and only its two choice lines changed. The key lookup
+  (`ISessionKeyStore.TryGet`) stays with each caller, because live answers also accept a per-request key.
+- **`PracticeService` takes `ISessionKeyStore`.** The old test "owner's model only when the provider is
+  Ollama" became tests for the local default with no key, the cloud model with the session key for the
+  question and the score, the full document budget, and a missing key (no fallback, the question stays
+  closed; at scoring the answer is kept for a retry).
+- **An unknown provider name** fails before the stream starts (503 with "The model provider 'x' isn't
+  available."), as live answers do. A missing key fails inside the stream as an `error` event.
+- **Not verifiable in the cloud session:** the backend tests run in CI only; the real Anthropic, OpenAI and
+  Google calls need the owner's key on Windows.
