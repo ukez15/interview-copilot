@@ -45,7 +45,7 @@ after it to count as my answer, so that practice feels like a real interview.
   they keep transcribing all the time. Clean Architecture: the gate is an Application interface. The
   Deepgram path (off by default) honours the same rule.
 - **Out of scope:** Whisper model choice (Settings already has the download; a smaller model is a
-  separate decision), GPU support, document budget changes, text-to-speech, and pre-generating the next
+  separate decision), GPU support, document budget changes for scoring and live answers, text-to-speech, and pre-generating the next
   question (it would compete with Whisper while the user answers).
 
 ### [T] Trace
@@ -134,3 +134,11 @@ thresholds or the Whisper model (yes/no).
    a few seconds, before scoring? **Recommended: yes, up to 5 s,** as part of this work.
 5. **To size the problem,** about how many seconds did "Next question" take, and were you talking
    while it was working?
+
+## Added after approval (2026-10-27)
+
+6. **Document budget for question prompts.** The owner's Ollama stats (prompt read at about 41 tokens/s,
+   6 s cold load) showed that the prompt's up to 6,000 document characters (~1,500 tokens, ~37 s to read)
+   were the biggest cost behind the 90 s question. **Owner's decision: 2,000 characters for question
+   prompts only** (`PracticePromptBuilder.QuestionDocumentBudget`). Scoring and the live assistant keep
+   6,000.

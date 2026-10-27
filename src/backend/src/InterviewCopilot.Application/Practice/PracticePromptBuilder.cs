@@ -12,12 +12,18 @@ public sealed record PracticeFeedback(int Score, string Feedback);
 /// <summary>Prompts for mock-interview mode: ask a question, then score the answer (FR-11).</summary>
 public static partial class PracticePromptBuilder
 {
+    /// <summary>
+    /// Document characters in a question prompt (#78). A small local model reads the prompt before it writes, so a
+    /// smaller budget asks sooner; scoring keeps <see cref="DocumentContextSelector.DefaultCharacterBudget"/>.
+    /// </summary>
+    public const int QuestionDocumentBudget = 2_000;
+
     public static IReadOnlyList<LlmMessage> NextQuestion(Session session, IReadOnlyList<string> askedSoFar)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(askedSoFar);
         var user = new StringBuilder();
-        AppendDocuments(user, DocumentContextSelector.Select(session.Documents, "job description requirements responsibilities skills"));
+        AppendDocuments(user, DocumentContextSelector.Select(session.Documents, "job description requirements responsibilities skills", QuestionDocumentBudget));
         if (askedSoFar.Count > 0)
         {
             user.AppendLine("Questions already asked (don't repeat them):");

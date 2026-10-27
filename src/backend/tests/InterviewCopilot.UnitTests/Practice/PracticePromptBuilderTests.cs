@@ -25,6 +25,19 @@ public class PracticePromptBuilderTests
     }
 
     [Fact]
+    public void Should_KeepQuestionDocumentsWithinTheQuestionBudget_And_ScoringWithinTheDefault()
+    {
+        var session = Session.Create(Guid.NewGuid(), "Mock", SessionMode.MockInterview, FixedClock.Default);
+        session.AttachDocument("cv.txt", new string('z', 10_000), FixedClock.Default);
+
+        var asked = PracticePromptBuilder.NextQuestion(session, []);
+        var scored = PracticePromptBuilder.ScoreAnswer(session, "Why?", "Yes.");
+
+        asked[1].Content.Count(c => c == 'z').Should().BeLessThanOrEqualTo(PracticePromptBuilder.QuestionDocumentBudget);
+        scored[1].Content.Count(c => c == 'z').Should().BeGreaterThan(PracticePromptBuilder.QuestionDocumentBudget);
+    }
+
+    [Fact]
     public void Should_AskForScoreFormat()
     {
         var messages = PracticePromptBuilder.ScoreAnswer(NewSession(), "Why C#?", "Because it's great.");
