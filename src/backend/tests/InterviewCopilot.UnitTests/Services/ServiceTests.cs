@@ -28,6 +28,39 @@ public class ServiceTests
         Ct);
 
     [Fact]
+    public async Task Should_DeleteOwnSession_When_ItIsNotLive()
+    {
+        var created = await CreateAsync();
+
+        await _sessions.DeleteAsync(Owner, created.Id, Ct);
+
+        _store.Sessions.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Should_RefuseToDeleteAnotherUsersSession_AsNotFound()
+    {
+        var created = await CreateAsync();
+
+        var act = () => _sessions.DeleteAsync(Guid.NewGuid(), created.Id, Ct);
+
+        await act.Should().ThrowAsync<NotFoundException>();
+        _store.Sessions.Should().ContainSingle();
+    }
+
+    [Fact]
+    public async Task Should_RefuseToDeleteALiveSession()
+    {
+        var created = await CreateAsync();
+        await _sessions.StartAsync(Owner, created.Id, Ct);
+
+        var act = () => _sessions.DeleteAsync(Owner, created.Id, Ct);
+
+        (await act.Should().ThrowAsync<ConflictException>()).WithMessage(SessionService.EndBeforeDeletingMessage);
+        _store.Sessions.Should().ContainSingle();
+    }
+
+    [Fact]
     public async Task Should_CreateListUpdateStartAndEndSessions()
     {
         var created = await CreateAsync();

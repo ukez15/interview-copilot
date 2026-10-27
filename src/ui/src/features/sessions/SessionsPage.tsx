@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { useApp } from '@/lib/app-context';
 import type { CreateSessionInput, Session } from '@/types/api';
+import { DeleteSessionButton } from './DeleteSessionButton';
 import { SessionForm } from './SessionForm';
 import { SpeechModelBanner } from './SpeechModelBanner';
 
@@ -74,6 +75,12 @@ export function SessionsPage() {
                 View transcript
               </Link>
             )}
+            <div className="pr-3">
+              <DeleteSessionButton
+                session={session}
+                onDeleted={(id) => setSessions((current) => current.filter((item) => item.id !== id))}
+              />
+            </div>
           </div>
         ))}
       </section>

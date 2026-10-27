@@ -71,6 +71,8 @@ public sealed class SessionService(
 {
     public const int MaxApiKeyLength = 512;
 
+    public const string EndBeforeDeletingMessage = "End the session before deleting it.";
+
     public async Task<SessionDto> CreateAsync(CreateSessionCommand command, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(command);
@@ -127,6 +129,26 @@ public sealed class SessionService(
         session.Start(clock.GetUtcNow());
         await unitOfWork.SaveChangesAsync(cancellationToken);
         return SessionDto.From(session);
+    }
+
+    /// <summary>
+    /// Permanently deletes one of the owner's sessions with its documents, transcript, answers and practice attempts
+    /// (#80). A live session must be ended first.
+    /// </summary>
+    /// <param name="ownerId">The signed-in user.</param>
+    /// <param name="sessionId">The session to delete.</param>
+    /// <param name="cancellationToken">Cancels the delete.</param>
+    /// <returns>A task that completes once the session is gone.</returns>
+    public async Task DeleteAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)
+    {
+        var session = await LoadOwnedAsync(ownerId, sessionId, cancellationToken);
+        if (session.Status == SessionStatus.Live)
+        {
+            throw new ConflictException(EndBeforeDeletingMessage);
+        }
+
+        sessions.Remove(session);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<SessionDto> EndAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)

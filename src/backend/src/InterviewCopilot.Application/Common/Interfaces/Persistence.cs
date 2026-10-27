@@ -9,6 +9,10 @@ public interface ISessionRepository
     Task<IReadOnlyList<Session>> ListByOwnerAsync(Guid ownerId, CancellationToken cancellationToken);
 
     void Add(Session session);
+
+    /// <summary>Marks the session for deletion; its documents, transcript, answers and attempts cascade (#80).</summary>
+    /// <param name="session">A session loaded through this repository.</param>
+    void Remove(Session session);
 }
 
 public interface IUserAccountRepository
