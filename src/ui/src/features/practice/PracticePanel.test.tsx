@@ -4,7 +4,7 @@ import { createWebPlatform } from '@/platform';
 import { FakeWebSocket } from '@/test/fakeWebSocket';
 import { fakeApi, json, renderWithApp, sampleSession, sse } from '@/test/helpers';
 import type { PracticeAttempt } from '@/types/api';
-import { PRACTICE_SILENCE_MS, PracticePanel, PracticeSummaryCard } from './PracticePanel';
+import { MIC_WAITS_HINT, PracticePanel, PracticeSummaryCard } from './PracticePanel';
 
 const attempt: PracticeAttempt = {
   id: 'a1',
@@ -79,6 +79,10 @@ async function mount(ctx: ReturnType<typeof setup>) {
   act(() => FakeWebSocket.last.open());
 }
 
+function silence() {
+  act(() => FakeWebSocket.last.emit({ id: 9, type: 'practice.silence', data: {} }));
+}
+
 function segment(speaker: 'Candidate' | 'Interviewer', text: string) {
   act(() => FakeWebSocket.last.emit({ id: 1, type: 'transcript.segment', data: { speaker, text } }));
 }
@@ -108,6 +112,7 @@ describe('PracticePanel', () => {
     await settle();
     expect(screen.getByLabelText('Question')).toHaveTextContent('Why');
     expect(screen.queryByText('Thinking of a question…')).not.toBeInTheDocument();
+    expect(screen.getByText(MIC_WAITS_HINT)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Done answering' })).toBeDisabled();
 
     stream.send('delta', 'us?');
@@ -116,6 +121,7 @@ describe('PracticePanel', () => {
     await settle();
     expect(screen.getByLabelText('Question')).toHaveTextContent('Why us?');
     expect(screen.getByText('Listening…')).toBeInTheDocument();
+    expect(screen.queryByText(MIC_WAITS_HINT)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Done answering' })).toBeEnabled();
   });
 
@@ -152,10 +158,9 @@ describe('PracticePanel', () => {
     expect(screen.getByLabelText('Score')).toHaveTextContent('Add numbers.');
     expect(screen.queryByRole('list', { name: 'Previous attempts' })).not.toBeInTheDocument();
 
-    // The 4 s timer armed by the segment must not score a second time.
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(PRACTICE_SILENCE_MS * 2);
-    });
+    // A silence signal arriving after the click must not score a second time.
+    silence();
+    await flush();
     expect(ctx.calls.finish).toBe(1);
   });
 
@@ -189,44 +194,59 @@ describe('PracticePanel', () => {
     expect(screen.queryByText('live words')).not.toBeInTheDocument();
   });
 
-  it('finishes once after 4 s of silence, counted from the last candidate segment', async () => {
+  it('scores once when the backend says the candidate has gone quiet (#78)', async () => {
     const ctx = setup();
     await mount(ctx);
     fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
     await flush();
     segment('Candidate', 'One.');
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(PRACTICE_SILENCE_MS - 1_000);
-    });
-    segment('Candidate', 'Two.');
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(PRACTICE_SILENCE_MS - 1);
-    });
-    expect(ctx.calls.finish).toBe(0);
 
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(1);
-    });
+    silence();
+    await flush();
+    silence();
+    await flush();
 
     expect(ctx.calls.finish).toBe(1);
     expect(screen.getByLabelText('Score')).toHaveTextContent('7/10');
-
-    // A click after the silence-triggered finish does nothing (the button is disabled).
     expect(screen.getByRole('button', { name: 'Done answering' })).toBeDisabled();
-    expect(ctx.calls.finish).toBe(1);
   });
 
-  it('does not auto-finish when no candidate segment arrived', async () => {
+  it('never scores on its own timer, however long the gap between transcribed lines', async () => {
     const ctx = setup();
     await mount(ctx);
     fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
     await flush();
+    segment('Candidate', 'One.');
 
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(PRACTICE_SILENCE_MS * 3);
+      await vi.advanceTimersByTimeAsync(60_000);
     });
 
     expect(ctx.calls.finish).toBe(0);
+  });
+
+  it('keeps showing words that arrive while the answer is being scored', async () => {
+    let release!: () => void;
+    const scored = new Promise<void>((resolve) => (release = resolve));
+    const ctx = setup({ finish: () => json(attempt) });
+    const finish = ctx.api.practiceFinish.bind(ctx.api);
+    vi.spyOn(ctx.api, 'practiceFinish').mockImplementation(async (id) => {
+      await scored;
+      return finish(id);
+    });
+    await mount(ctx);
+    fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
+    await flush();
+    segment('Candidate', 'First.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Done answering' }));
+    await flush();
+    segment('Candidate', 'microservices');
+
+    expect(screen.getByText('Scoring your answer…')).toBeInTheDocument();
+    expect(screen.getByText('microservices')).toBeInTheDocument();
+    release();
+    await flush();
   });
 
   it('shows a readable error and allows trying again when scoring fails', async () => {

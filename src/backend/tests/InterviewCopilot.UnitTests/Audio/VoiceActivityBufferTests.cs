@@ -44,6 +44,17 @@ public class VoiceActivityBufferTests
     private static VoiceActivityBuffer NewBuffer() => new(new VadOptions());
 
     [Fact]
+    public void Should_RememberWhereTheLastVoiceEnded()
+    {
+        var buffer = NewBuffer();
+        buffer.LastVoiceEndMs.Should().Be(0);
+
+        Feed(buffer, (Silent(), 2), (Loud(), 3), (Silent(), 10));
+
+        buffer.LastVoiceEndMs.Should().Be(500); // the third loud frame, at 400 ms, ends at 500 ms
+    }
+
+    [Fact]
     public void Should_EmitNothing_When_TenMinutesOfSilence()
     {
         var segments = Feed(NewBuffer(), (Silent(), 6_000));

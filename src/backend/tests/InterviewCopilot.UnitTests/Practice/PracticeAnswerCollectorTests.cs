@@ -125,4 +125,19 @@ public class PracticeAnswerCollectorTests
 
         act.Should().Throw<ArgumentException>();
     }
+
+    [Fact]
+    public async Task Should_LetSilenceBeClaimedOncePerQuestion_AndOnlyAfterAnAnswer()
+    {
+        var collector = new PracticeAnswerCollector();
+        var id = Guid.NewGuid();
+        collector.TryClaimSilence(id).Should().BeFalse("no question is open");
+        collector.Open(id, "Why us?");
+        collector.TryClaimSilence(id).Should().BeFalse("nothing was said yet");
+
+        await collector.OnSegmentAsync(TranscriptSegment.Create(id, Speaker.Candidate, 0, 1, "words"), TestContext.Current.CancellationToken);
+
+        collector.TryClaimSilence(id).Should().BeTrue();
+        collector.TryClaimSilence(id).Should().BeFalse();
+    }
 }

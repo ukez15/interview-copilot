@@ -6,8 +6,11 @@ import { useSessionEvents, type SessionEvent } from '@/features/copilot/useSessi
 import { useApp } from '@/lib/app-context';
 import type { PracticeAttempt } from '@/types/api';
 
-/** Silence after the last Candidate segment that counts as "done answering". */
-export const PRACTICE_SILENCE_MS = 4_000;
+/** Shown while the question is written: the mic is muted until it's complete (#78). */
+export const MIC_WAITS_HINT = 'The mic listens once the question is complete.';
+
+/** Sent by the backend once the candidate has been quiet for 6 s after answering (#78). */
+const PRACTICE_SILENCE_EVENT = 'practice.silence';
 
 function ScoreCard({ attempt }: { attempt: PracticeAttempt }) {
   return (
@@ -20,8 +23,9 @@ function ScoreCard({ attempt }: { attempt: PracticeAttempt }) {
 
 /**
  * Mock interview panel (#26), shown in the overlay window (#74): ask a question, show whether the mic is heard and
- * the candidate's live transcript, and score the answer when "Done answering" is clicked or
- * {@link PRACTICE_SILENCE_MS} pass without a new Candidate segment. The history lives in {@link PracticeSummaryCard}.
+ * the candidate's live transcript, and score the answer when "Done answering" is clicked or the backend says the
+ * candidate has been quiet for 6 s (#78). Silence is measured on the audio, not on when text arrives, so slow
+ * transcription can't cut an answer short. The history lives in {@link PracticeSummaryCard}.
  */
 export function PracticePanel({ sessionId, live }: { sessionId: string; live: boolean }) {
   const { api } = useApp();
@@ -36,17 +40,12 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
   const finishing = useRef(false);
   // Where this answer starts in the mic stream; speech that started earlier but was transcribed late isn't it (#78).
   const answerFromMs = useRef(0);
-  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  useEffect(() => () => clearTimeout(timer.current), []);
-
   // Whichever of click / silence comes first wins; the other is a no-op while scoring or once closed.
   const finish = useCallback(async () => {
     if (!open.current || finishing.current) {
       return;
     }
     finishing.current = true;
-    clearTimeout(timer.current);
     setBusy('scoring');
     setError(null);
     try {
@@ -64,8 +63,13 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
 
   const onEvent = useCallback(
     (event: SessionEvent) => {
+      if (event.type === PRACTICE_SILENCE_EVENT) {
+        void finish();
+        return;
+      }
       const data = (event.data ?? {}) as { speaker?: string; text?: string; startMs?: number };
-      if (event.type !== 'transcript.segment' || data.speaker !== 'Candidate' || !data.text || !open.current || finishing.current) {
+      // Lines keep coming while scoring: the backend waits for the last words, and they're part of the answer.
+      if (event.type !== 'transcript.segment' || data.speaker !== 'Candidate' || !data.text || !open.current) {
         return;
       }
       if ((data.startMs ?? 0) < answerFromMs.current) {
@@ -73,15 +77,12 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
       }
       const text = data.text;
       setSegments((previous) => [...previous, text]);
-      clearTimeout(timer.current);
-      timer.current = setTimeout(() => void finish(), PRACTICE_SILENCE_MS);
     },
     [finish],
   );
   useSessionEvents(sessionId, onEvent);
 
   async function next() {
-    clearTimeout(timer.current);
     open.current = false;
     setBusy('asking');
     setError(null);
@@ -125,6 +126,7 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
         <div className="grid gap-1">
           <CardTitle>Question</CardTitle>
           <p aria-label="Question">{question ?? draft.trim()}</p>
+          {!question && <p className="text-sm text-muted-foreground">{MIC_WAITS_HINT}</p>}
         </div>
       )}
       {question && (

@@ -172,7 +172,8 @@ thresholds or the Whisper model (yes/no).
 
 ## Changes after the owner's second test (2026-10-27, test installer e67b4bf)
 
-Status: **awaiting the owner's OK.** No code until then.
+Status: **approved by the owner with the recommendations (2026-10-27)**: 6 s of no voice, drop noise labels in
+every mode, and show the mic hint.
 
 What the owner saw: questions now come quickly, word by word. But scoring started while they were still
 answering (once after about 12 words). "(mumbles)" appeared as their answer, and words they'd said

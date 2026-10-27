@@ -51,6 +51,26 @@ public sealed class PracticeAnswerCollector : ITranscriptSegmentListener
         }
     }
 
+    /// <summary>
+    /// True once per open question, and only after the candidate said something: lets the silence after an answer
+    /// be announced a single time (#78).
+    /// </summary>
+    /// <param name="sessionId">The session being practised.</param>
+    /// <returns>True when the caller should announce the silence.</returns>
+    public bool TryClaimSilence(Guid sessionId)
+    {
+        lock (_gate)
+        {
+            if (!_open.TryGetValue(sessionId, out var open) || open.Segments.Count == 0 || open.SilenceClaimed)
+            {
+                return false;
+            }
+
+            open.SilenceClaimed = true;
+            return true;
+        }
+    }
+
     /// <summary>Opens a question for the session, replacing any unanswered one and its collected text.</summary>
     /// <param name="sessionId">The session being practised.</param>
     /// <param name="question">The question that was just asked.</param>
@@ -107,5 +127,7 @@ public sealed class PracticeAnswerCollector : ITranscriptSegmentListener
         public long FromMs { get; } = fromMs;
 
         public List<string> Segments { get; } = [];
+
+        public bool SilenceClaimed { get; set; }
     }
 }

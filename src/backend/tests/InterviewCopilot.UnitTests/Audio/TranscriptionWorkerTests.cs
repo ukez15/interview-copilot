@@ -25,6 +25,7 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
     private readonly Guid _sessionId = Guid.NewGuid();
     private readonly RecordingListener _listener = new();
     private readonly ProgressListener _progress = new();
+    private readonly RecordingFrames _frames = new();
     private readonly SwitchGate _gate = new();
 
     public TranscriptionWorkerTests()
@@ -43,7 +44,8 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
             _sink,
             _provider.GetRequiredService<IServiceScopeFactory>(),
             _publisher,
-            NullLogger<TranscriptionWorker>.Instance);
+            NullLogger<TranscriptionWorker>.Instance,
+            [_frames]);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -127,6 +129,72 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
         public ValueTask OnSegmentAsync(TranscriptSegment segment, CancellationToken cancellationToken)
         {
             SeenWhenDelivered = Read();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task Should_DropWhisperNoiseLabels_AsIfNothingWasSaid()
+    {
+        _stt.Reply = "(mumbles)";
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Candidate, loudFrames: 5, silentFrames: 6);
+        await _stt.WaitForCallsAsync(1);
+        await WaitUntilAsync(() => _frames.Count >= 11);
+
+        _store.Segments.Should().BeEmpty();
+        _publisher.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Should_ReportEachHandledFrame_WithWhereTheVoiceLastEnded()
+    {
+        _stt.Reply = "words";
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Candidate, loudFrames: 5, silentFrames: 6);
+        await WaitUntilAsync(() => _frames.Count >= 11);
+
+        var mid = _frames.All[4];
+        mid.Should().Be(new AudioProgress(_sessionId, Speaker.Candidate, 500, 500, SpeechPending: true));
+        var last = _frames.All[10];
+        last.Should().Be(new AudioProgress(_sessionId, Speaker.Candidate, 1_100, 500, SpeechPending: false));
+    }
+
+    private sealed class RecordingFrames : IAudioProgressListener
+    {
+        private readonly List<AudioProgress> _seen = [];
+
+        public int Count
+        {
+            get
+            {
+                lock (_seen)
+                {
+                    return _seen.Count;
+                }
+            }
+        }
+
+        public IReadOnlyList<AudioProgress> All
+        {
+            get
+            {
+                lock (_seen)
+                {
+                    return [.. _seen];
+                }
+            }
+        }
+
+        public ValueTask OnFrameHandledAsync(AudioProgress progress, CancellationToken cancellationToken)
+        {
+            lock (_seen)
+            {
+                _seen.Add(progress);
+            }
+
             return ValueTask.CompletedTask;
         }
     }

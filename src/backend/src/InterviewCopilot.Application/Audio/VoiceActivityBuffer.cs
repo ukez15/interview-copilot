@@ -20,6 +20,7 @@ public sealed class VoiceActivityBuffer
     private long _frameIndex;
     private long _startMs;
     private int _trailingSilentFrames;
+    private long _lastVoiceEndMs;
 
     /// <summary>Creates a buffer with the given thresholds.</summary>
     /// <param name="options">Silence threshold, pause, maximum and minimum lengths.</param>
@@ -34,6 +35,9 @@ public sealed class VoiceActivityBuffer
 
     /// <summary>True while speech is buffered and not yet cut into a segment.</summary>
     public bool HasSpeech => _frames.Count > 0;
+
+    /// <summary>Where the last voiced frame ended, in stream milliseconds; 0 before any voice (#78).</summary>
+    public long LastVoiceEndMs => _lastVoiceEndMs;
 
     /// <summary>Everything before this stream position (ms) has been cut into segments or found to be silence.</summary>
     public long CutThroughMs => HasSpeech ? _startMs : _frameIndex * VadOptions.FrameMs;
@@ -55,6 +59,10 @@ public sealed class VoiceActivityBuffer
         var atMs = frameIndex * VadOptions.FrameMs;
         _frameIndex = frameIndex + 1;
         var voiced = IsVoiced(pcm16.Span);
+        if (voiced)
+        {
+            _lastVoiceEndMs = atMs + VadOptions.FrameMs;
+        }
 
         if (_frames.Count == 0)
         {
