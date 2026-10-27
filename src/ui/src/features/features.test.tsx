@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App } from '@/App';
@@ -62,6 +62,19 @@ describe('SessionsPage', () => {
     const post = fetchImpl.mock.calls.find((call) => call[1]?.method === 'POST')!;
     const body = JSON.parse(String(post[1]!.body)) as Record<string, unknown>;
     expect(body).toMatchObject({ title: 'Globex call', mode: 'Conversation', answerLength: 'Long', framework: 'Smart', pinnedQuestionType: null });
+  });
+
+  it('removes a session from the history once it is deleted (#80)', async () => {
+    const ended = { ...sampleSession, status: 'Ended' as const };
+    const { api } = fakeApi((url, init) => (init.method === 'DELETE' ? new Response(null, { status: 204 }) : json([ended])));
+    renderWithApp(<SessionsPage />, { api });
+
+    await screen.findByText('Acme onsite');
+    await userEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(screen.queryByText('Acme onsite')).not.toBeInTheDocument());
+    expect(screen.getByText('No sessions yet.')).toBeInTheDocument();
   });
 
   describe('with a job link pasted into the title', () => {
@@ -192,7 +205,7 @@ describe('SessionPage', () => {
   });
 
   it('exports the transcript as a PDF download', async () => {
-    const { api } = fakeApi((url) => (url.endsWith('/pdf') ? new Response(new Blob(['%PDF'])) : json(sampleSession)));
+    const { api } = fakeApi((url) => (url.endsWith('/pdf') ? new Response('%PDF', { headers: { 'Content-Type': 'application/pdf' } }) : json(sampleSession)));
     URL.createObjectURL = vi.fn(() => 'blob:x');
     URL.revokeObjectURL = vi.fn();
     const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
@@ -223,6 +236,18 @@ describe('SessionPage', () => {
 
     expect(await screen.findByRole('button', { name: 'Next question' })).toBeInTheDocument();
     expect(screen.queryByText('Live assistant')).not.toBeInTheDocument();
+  });
+
+  it('goes back to the session list after deleting the session (#80)', async () => {
+    const { api } = fakeApi((url, init) =>
+      init.method === 'DELETE' ? new Response(null, { status: 204 }) : json({ ...sampleSession, status: 'Ended' }),
+    );
+    renderWithApp(<SessionPage />, { api, ...route });
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+    await userEvent.click(within(await screen.findByRole('alertdialog')).getByRole('button', { name: 'Delete' }));
+
+    expect(await screen.findByText('navigated')).toBeInTheDocument();
   });
 
   it('shows a not-found error', async () => {

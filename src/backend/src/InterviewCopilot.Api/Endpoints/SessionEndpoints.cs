@@ -71,6 +71,13 @@ internal static class SessionEndpoints
         owner.MapPost("/{sessionId:guid}/end", (Guid sessionId, ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
             sessions.EndAsync(user.UserId(), sessionId, ct));
 
+        // #80: permanent; documents, transcript, answers and attempts cascade. 409 while live.
+        owner.MapDelete("/{sessionId:guid}", async (Guid sessionId, ClaimsPrincipal user, SessionService sessions, CancellationToken ct) =>
+        {
+            await sessions.DeleteAsync(user.UserId(), sessionId, ct);
+            return TypedResults.NoContent();
+        });
+
         owner.MapPut("/{sessionId:guid}/keys/{provider}", async (
             Guid sessionId,
             string provider,

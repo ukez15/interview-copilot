@@ -18,6 +18,8 @@ internal sealed class SessionRepository(InterviewCopilotDbContext db) : ISession
             .ToListAsync(cancellationToken);
 
     public void Add(Session session) => db.Sessions.Add(session);
+
+    public void Remove(Session session) => db.Sessions.Remove(session);
 }
 
 internal sealed class UserAccountRepository(InterviewCopilotDbContext db) : IUserAccountRepository

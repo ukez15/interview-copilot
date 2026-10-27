@@ -40,6 +40,8 @@ internal sealed class InMemoryStore : ISessionRepository, IUserAccountRepository
 
     public void Add(Session session) => Sessions.Add(session);
 
+    public void Remove(Session session) => Sessions.Remove(session);
+
     public Task<UserAccount?> FindByUsernameAsync(string username, CancellationToken cancellationToken) =>
         Task.FromResult(Accounts.Find(a => string.Equals(a.Username, username, StringComparison.OrdinalIgnoreCase)));
 

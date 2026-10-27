@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
 import { CaptureIndicator } from '@/features/audio/CaptureIndicator';
@@ -8,12 +8,14 @@ import { LiveAssistant } from '@/features/copilot/LiveAssistant';
 import { PracticeCard } from '@/features/practice/PracticePanel';
 import { useApp } from '@/lib/app-context';
 import { QUESTION_TYPE_LABELS, type Session } from '@/types/api';
+import { DeleteSessionButton } from './DeleteSessionButton';
 import { SessionSettingsCard } from './SessionSettingsCard';
 import { startLiveSession } from './start-live';
 
 export function SessionPage() {
   const { sessionId = '' } = useParams();
   const { api, platform } = useApp();
+  const navigate = useNavigate();
   const [session, setSession] = useState<Session | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -103,6 +105,7 @@ export function SessionPage() {
           <Button variant="outline" onClick={() => void exportPdf()}>
             Export PDF
           </Button>
+          <DeleteSessionButton session={session} onDeleted={() => void navigate('/')} />
         </div>
         {error && (
           <p role="alert" className="text-sm text-destructive">
