@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 namespace InterviewCopilot.Application.Audio;
 
 /// <summary>One stretch of speech cut out of a speaker's stream.</summary>
-/// <param name="StartMs">Start of the first voiced frame (frames received times 100 ms).</param>
+/// <param name="StartMs">Start of the first voiced frame: its position in the speaker's stream (frame index times 100 ms).</param>
 /// <param name="EndMs">End of the last voiced frame.</param>
 /// <param name="Pcm16">16 kHz mono PCM16 LE audio for the segment, trailing silence removed.</param>
 public sealed record SpeechSegment(long StartMs, long EndMs, byte[] Pcm16);
@@ -29,13 +29,31 @@ public sealed class VoiceActivityBuffer
         _options = options;
     }
 
+    /// <summary>The stream index the next frame is expected to have; another index means frames were skipped.</summary>
+    public long NextFrameIndex => _frameIndex;
+
+    /// <summary>True while speech is buffered and not yet cut into a segment.</summary>
+    public bool HasSpeech => _frames.Count > 0;
+
+    /// <summary>Everything before this stream position (ms) has been cut into segments or found to be silence.</summary>
+    public long CutThroughMs => HasSpeech ? _startMs : _frameIndex * VadOptions.FrameMs;
+
     /// <summary>Adds the next 100 ms frame. The buffer keeps a reference, so the caller must not change it afterwards.</summary>
     /// <param name="pcm16">One frame of PCM16 little-endian samples.</param>
     /// <returns>A finished segment, or null when nothing ended on this frame.</returns>
-    public SpeechSegment? Push(ReadOnlyMemory<byte> pcm16)
+    public SpeechSegment? Push(ReadOnlyMemory<byte> pcm16) => Push(pcm16, _frameIndex);
+
+    /// <summary>
+    /// Adds a frame at a known position in the stream, so segment times stay true when earlier frames were
+    /// skipped. Call <see cref="Flush"/> first if the index isn't <see cref="NextFrameIndex"/> while speech is buffered.
+    /// </summary>
+    /// <param name="pcm16">One frame of PCM16 little-endian samples.</param>
+    /// <param name="frameIndex">The frame's position in the speaker's stream (0 for the first frame).</param>
+    /// <returns>A finished segment, or null when nothing ended on this frame.</returns>
+    public SpeechSegment? Push(ReadOnlyMemory<byte> pcm16, long frameIndex)
     {
-        var atMs = _frameIndex * VadOptions.FrameMs;
-        _frameIndex++;
+        var atMs = frameIndex * VadOptions.FrameMs;
+        _frameIndex = frameIndex + 1;
         var voiced = IsVoiced(pcm16.Span);
 
         if (_frames.Count == 0)

@@ -313,4 +313,28 @@ public class VoiceActivityBufferTests
 
         maxBytes.Should().Be(150 * FrameBytes);
     }
+
+    [Fact]
+    public void Should_TimeSegmentsFromTheGivenStreamIndex_When_EarlierFramesWereSkipped()
+    {
+        var buffer = new VoiceActivityBuffer(new VadOptions());
+        SpeechSegment? segment = null;
+        long index = 10;
+        for (var i = 0; i < 4; i++)
+        {
+            buffer.Push(Loud(), index++).Should().BeNull();
+        }
+
+        buffer.HasSpeech.Should().BeTrue();
+        buffer.NextFrameIndex.Should().Be(14);
+        for (var i = 0; i < 6 && segment is null; i++)
+        {
+            segment = buffer.Push(Silent(), index++);
+        }
+
+        segment.Should().NotBeNull();
+        segment.StartMs.Should().Be(1_000);
+        segment.EndMs.Should().Be(1_400);
+        buffer.HasSpeech.Should().BeFalse();
+    }
 }

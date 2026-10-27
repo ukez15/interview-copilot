@@ -99,6 +99,12 @@ export interface TranscriptAnswer {
 }
 
 /** A scored mock-interview answer (#26). */
+/** The next mock-interview question; speech that started before `answerFromMs` of mic stream isn't the answer (#78). */
+export interface PracticeQuestion {
+  question: string;
+  answerFromMs: number;
+}
+
 export interface PracticeAttempt {
   id: string;
   question: string;

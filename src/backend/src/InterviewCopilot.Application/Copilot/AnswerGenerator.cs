@@ -58,13 +58,12 @@ public sealed class AnswerGenerator(
 
         var options = llmOptions.Value;
         var owner = await preferences.GetAsync(session.OwnerId, cancellationToken);
-        var providerName = string.IsNullOrWhiteSpace(owner?.LlmProvider) ? options.Provider : owner.LlmProvider;
-        var model = string.IsNullOrWhiteSpace(owner?.LlmModel) ? options.Model : owner.LlmModel;
-        var llm = llmProviders.Resolve(providerName);
+        var choice = ChatModelChoice.For(owner, options);
+        var llm = llmProviders.Resolve(choice.Provider);
 
         // A key handed to the live session wins; a per-request key still works for manual answers (#30).
-        var apiKey = sessionKeys.TryGet(session.Id, providerName) ?? request.ApiKey;
-        var llmRequest = new LlmRequest(model, AnswerPromptBuilder.Build(input), options.Temperature, apiKey);
+        var apiKey = sessionKeys.TryGet(session.Id, choice.Provider) ?? request.ApiKey;
+        var llmRequest = new LlmRequest(choice.Model, AnswerPromptBuilder.Build(input), options.Temperature, apiKey);
         var version = request.PreviousVersion + 1;
 
         return (new AnswerHeader(questionType, version),

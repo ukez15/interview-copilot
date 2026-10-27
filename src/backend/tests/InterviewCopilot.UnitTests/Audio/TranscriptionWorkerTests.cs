@@ -24,17 +24,21 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
     private readonly TranscriptionWorker _worker;
     private readonly Guid _sessionId = Guid.NewGuid();
     private readonly RecordingListener _listener = new();
+    private readonly ProgressListener _progress = new();
+    private readonly SwitchGate _gate = new();
 
     public TranscriptionWorkerTests()
     {
-        _sink = new TranscriptionSink(Options.Create(new VadOptions()), new FixedRouter(deepgram: false));
+        _sink = new TranscriptionSink(Options.Create(new VadOptions()), new FixedRouter(deepgram: false), _gate);
         var services = new ServiceCollection();
         services.AddSingleton<ITranscriptRepository>(_store);
         services.AddSingleton<IUnitOfWork>(_store);
         services.AddSingleton<ISpeechToTextProvider>(_stt);
         services.AddSingleton<ITranscriptSegmentListener>(new ThrowingListener());
         services.AddSingleton<ITranscriptSegmentListener>(_listener);
+        services.AddSingleton<ITranscriptSegmentListener>(_progress);
         _provider = services.BuildServiceProvider();
+        _progress.Read = () => _sink.TranscribedThroughMs(_sessionId, Speaker.Candidate);
         _worker = new TranscriptionWorker(
             _sink,
             _provider.GetRequiredService<IServiceScopeFactory>(),
@@ -86,6 +90,45 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
 
         segment.Text.Should().Be("What is your biggest strength?");
         segment.SessionId.Should().Be(_sessionId);
+    }
+
+    [Fact]
+    public async Task Should_MarkTheStreamTranscribed_OnlyOnceItsSegmentIsDelivered()
+    {
+        _stt.Reply = "my last words";
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Candidate, loudFrames: 5, silentFrames: 6);
+        var segment = await _listener.WaitAsync();
+        await WaitUntilAsync(() => _progress.SeenWhenDelivered >= 0);
+
+        _progress.SeenWhenDelivered.Should().BeLessThan(segment.EndMs, "speech still being transcribed isn't transcribed yet");
+        await WaitUntilAsync(() => _sink.TranscribedThroughMs(_sessionId, Speaker.Candidate) == _sink.PositionMs(_sessionId, Speaker.Candidate));
+        _sink.TranscribedThroughMs(_sessionId, Speaker.Candidate).Should().Be(1_100);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        while (!condition())
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+    }
+
+    /// <summary>Records how far the sink said transcription had got when the segment reached listeners.</summary>
+    private sealed class ProgressListener : ITranscriptSegmentListener
+    {
+        public Func<long> Read { get; set; } = () => 0;
+
+        public long SeenWhenDelivered { get; private set; } = -1;
+
+        public ValueTask OnSegmentAsync(TranscriptSegment segment, CancellationToken cancellationToken)
+        {
+            SeenWhenDelivered = Read();
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class ThrowingListener : ITranscriptSegmentListener
@@ -147,6 +190,22 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
         chunk.SampleRate.Should().Be(16_000);
         chunk.StartMs.Should().Be(300);
         chunk.Pcm16.Length.Should().Be(4 * FrameBytes);
+    }
+
+    [Fact]
+    public async Task Should_EndTheSpeechAtAGap_AndTimeEachSegmentByItsStreamPosition()
+    {
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Candidate, loudFrames: 4, silentFrames: 0); // frames 0-3, still mid-speech
+        _gate.Accept = false;
+        await SendAsync(Speaker.Candidate, loudFrames: 5, silentFrames: 0); // frames 4-8, dropped by the gate
+        _gate.Accept = true;
+        await SendAsync(Speaker.Candidate, loudFrames: 4, silentFrames: 6); // frames 9-12, then a pause
+        await _publisher.WaitForAsync(2);
+
+        _stt.Chunks.Select(c => c.StartMs).Should().Equal(0, 900);
+        _stt.Chunks.Should().AllSatisfy(c => c.Pcm16.Length.Should().Be(4 * FrameBytes));
     }
 
     [Fact]

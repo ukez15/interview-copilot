@@ -94,7 +94,7 @@ public sealed partial class TranscriptionWorker : BackgroundService
     {
         try
         {
-            await foreach (var frame in pipeline.Frames.Reader.ReadAllAsync(cancellationToken))
+            await foreach (var queued in pipeline.Frames.Reader.ReadAllAsync(cancellationToken))
             {
                 var dropped = pipeline.TakeNewDrops();
                 if (dropped > 0)
@@ -102,11 +102,24 @@ public sealed partial class TranscriptionWorker : BackgroundService
                     LogDroppedFrames(dropped, pipeline.SessionId);
                 }
 
-                var segment = pipeline.BufferFor(frame.Speaker).Push(frame.Pcm16);
+                var speaker = queued.Frame.Speaker;
+                var buffer = pipeline.BufferFor(speaker);
+
+                // Frames were skipped (the gate closed, or the queue overflowed): end the speech before the gap
+                // rather than stitching audio from two moments into one segment.
+                if (buffer.HasSpeech && queued.Index != buffer.NextFrameIndex && buffer.Flush() is { } cut)
+                {
+                    await TranscribeAsync(pipeline.SessionId, speaker, cut, cancellationToken);
+                }
+
+                var segment = buffer.Push(queued.Frame.Pcm16, queued.Index);
                 if (segment is not null)
                 {
-                    await TranscribeAsync(pipeline.SessionId, frame.Speaker, segment, cancellationToken);
+                    await TranscribeAsync(pipeline.SessionId, speaker, segment, cancellationToken);
                 }
+
+                // Only now, with any segment delivered, does the speaker's stream count as transcribed this far.
+                _sink.MarkTranscribed(pipeline, speaker, buffer.CutThroughMs);
             }
 
             // The stream ended and the queue is empty: transcribe what each speaker was still saying.

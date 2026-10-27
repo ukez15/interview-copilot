@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardDescription, CardTitle } from '@/components/ui/card';
+import { MicStatus } from '@/features/audio/MicStatus';
 import { useSessionEvents, type SessionEvent } from '@/features/copilot/useSessionEvents';
 import { useApp } from '@/lib/app-context';
 import type { PracticeAttempt } from '@/types/api';
@@ -18,24 +19,24 @@ function ScoreCard({ attempt }: { attempt: PracticeAttempt }) {
 }
 
 /**
- * Mock interview panel (#26): ask a question, show the candidate's live transcript, and score the answer when
- * "Done answering" is clicked or {@link PRACTICE_SILENCE_MS} pass without a new Candidate segment.
+ * Mock interview panel (#26), shown in the overlay window (#74): ask a question, show whether the mic is heard and
+ * the candidate's live transcript, and score the answer when "Done answering" is clicked or
+ * {@link PRACTICE_SILENCE_MS} pass without a new Candidate segment. The history lives in {@link PracticeSummaryCard}.
  */
 export function PracticePanel({ sessionId, live }: { sessionId: string; live: boolean }) {
   const { api } = useApp();
   const [question, setQuestion] = useState<string | null>(null);
+  // The question as the model writes it (#78); replaced by `question` once it's complete.
+  const [draft, setDraft] = useState('');
   const [segments, setSegments] = useState<string[]>([]);
   const [result, setResult] = useState<PracticeAttempt | null>(null);
-  const [attempts, setAttempts] = useState<PracticeAttempt[]>([]);
   const [busy, setBusy] = useState<'asking' | 'scoring' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const open = useRef(false);
   const finishing = useRef(false);
+  // Where this answer starts in the mic stream; speech that started earlier but was transcribed late isn't it (#78).
+  const answerFromMs = useRef(0);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-
-  useEffect(() => {
-    api.practiceAttempts(sessionId).then(setAttempts, (err: Error) => setError(err.message));
-  }, [api, sessionId]);
 
   useEffect(() => () => clearTimeout(timer.current), []);
 
@@ -52,7 +53,6 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
       const attempt = await api.practiceFinish(sessionId);
       open.current = false;
       setResult(attempt);
-      setAttempts((previous) => [...previous, attempt]);
     } catch (err) {
       // The backend keeps the question and answer open after a failure, so the candidate can try again.
       setError(err instanceof Error ? err.message : 'Scoring failed.');
@@ -64,8 +64,11 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
 
   const onEvent = useCallback(
     (event: SessionEvent) => {
-      const data = (event.data ?? {}) as { speaker?: string; text?: string };
+      const data = (event.data ?? {}) as { speaker?: string; text?: string; startMs?: number };
       if (event.type !== 'transcript.segment' || data.speaker !== 'Candidate' || !data.text || !open.current || finishing.current) {
+        return;
+      }
+      if ((data.startMs ?? 0) < answerFromMs.current) {
         return;
       }
       const text = data.text;
@@ -82,13 +85,17 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
     open.current = false;
     setBusy('asking');
     setError(null);
+    setQuestion(null);
+    setDraft('');
+    setSegments([]);
+    setResult(null);
     try {
-      const asked = await api.practiceNext(sessionId);
+      const asked = await api.practiceNext(sessionId, (token) => setDraft((previous) => previous + token));
+      answerFromMs.current = asked.answerFromMs;
       open.current = true;
-      setQuestion(asked);
-      setSegments([]);
-      setResult(null);
+      setQuestion(asked.question);
     } catch (err) {
+      setDraft('');
       setError(err instanceof Error ? err.message : 'Could not get a question.');
     } finally {
       setBusy(null);
@@ -96,8 +103,9 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
   }
 
   return (
-    <section className="grid gap-4">
+    <section className="grid gap-3 break-words">
       {!live && <CardDescription>Start the session to practice.</CardDescription>}
+      <MicStatus active={live} />
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => void next()} disabled={!live || busy !== null}>
           Next question
@@ -111,18 +119,23 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
           {error}
         </p>
       )}
-      {busy === 'asking' && <p className="text-sm text-muted-foreground">Thinking of a question…</p>}
+      {busy === 'asking' && !draft.trim() && <p className="text-sm text-muted-foreground">Thinking of a question…</p>}
       {busy === 'scoring' && <p className="text-sm text-muted-foreground">Scoring your answer…</p>}
-      {question && (
+      {(question ?? draft.trim()) && (
         <div className="grid gap-1">
           <CardTitle>Question</CardTitle>
-          <p>{question}</p>
+          <p aria-label="Question">{question ?? draft.trim()}</p>
         </div>
       )}
       {question && (
         <div className="grid gap-1">
           <p className="text-sm font-medium">Your answer</p>
-          {segments.length === 0 ? (
+          {result ? (
+            // Once scored, show exactly what was marked rather than the live lines.
+            <p aria-label="Your answer" className="whitespace-pre-wrap text-sm">
+              {result.answerText}
+            </p>
+          ) : segments.length === 0 ? (
             <p className="text-sm text-muted-foreground">Listening…</p>
           ) : (
             <ul aria-label="Your answer" className="grid gap-1 text-sm">
@@ -134,6 +147,43 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
         </div>
       )}
       {result && <ScoreCard attempt={result} />}
+    </section>
+  );
+}
+
+/**
+ * Main-window card for a mock interview (#74): the practice itself runs in the overlay, so this shows where to look
+ * and the scored attempts. No event reaches this window when the overlay scores one, so the list reloads whenever
+ * the window regains focus.
+ */
+export function PracticeSummaryCard({ sessionId, live }: { sessionId: string; live: boolean }) {
+  const { api } = useApp();
+  const [attempts, setAttempts] = useState<PracticeAttempt[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const load = () =>
+      api.practiceAttempts(sessionId).then(
+        (loaded) => {
+          setAttempts(loaded);
+          setError(null);
+        },
+        (err: Error) => setError(err.message),
+      );
+    void load();
+    window.addEventListener('focus', load);
+    return () => window.removeEventListener('focus', load);
+  }, [api, sessionId]);
+
+  return (
+    <Card className="grid gap-4">
+      <CardTitle>Practice</CardTitle>
+      <CardDescription>{live ? 'Practising in the overlay.' : 'Start the session to practice.'}</CardDescription>
+      {error && (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
       {attempts.length > 0 && (
         <div className="grid gap-2">
           <CardTitle>Previous attempts</CardTitle>
@@ -146,15 +196,6 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
           </ul>
         </div>
       )}
-    </section>
-  );
-}
-
-export function PracticeCard({ sessionId, live }: { sessionId: string; live: boolean }) {
-  return (
-    <Card>
-      <CardTitle className="mb-4">Practice</CardTitle>
-      <PracticePanel sessionId={sessionId} live={live} />
     </Card>
   );
 }

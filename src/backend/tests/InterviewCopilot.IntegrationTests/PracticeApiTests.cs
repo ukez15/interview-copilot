@@ -109,6 +109,16 @@ public sealed class PracticeApiTests : IClassFixture<ApiFactory>
         return await client.PostAsync($"/api/sessions/{sessionId}/practice/finish", null, Ct);
     }
 
+    /// <summary>The question the stream's "done" event carries (#78).</summary>
+    private static PracticeQuestionDto DoneQuestion(string stream)
+    {
+        const string marker = "event: done\ndata: ";
+        var start = stream.IndexOf(marker, StringComparison.Ordinal);
+        start.Should().BeGreaterThanOrEqualTo(0, "the stream ends with a done event");
+        var data = stream[(start + marker.Length)..].Split('\n')[0];
+        return JsonSerializer.Deserialize<PracticeQuestionDto>(data, Json)!;
+    }
+
     [Fact]
     public async Task Should_AskListenScoreAndSave_AndIncludeAttemptsInTranscript()
     {
@@ -117,7 +127,10 @@ public sealed class PracticeApiTests : IClassFixture<ApiFactory>
 
         var next = await client.PostAsync($"/api/sessions/{session.Id}/practice/next", null, Ct);
         next.StatusCode.Should().Be(HttpStatusCode.OK);
-        (await next.Content.ReadFromJsonAsync<PracticeQuestionDto>(Json, Ct))!.Question.Should().Be("What is dependency injection?");
+        next.Content.Headers.ContentType!.MediaType.Should().Be("text/event-stream");
+        var stream = await next.Content.ReadAsStringAsync(Ct);
+        stream.Should().Contain("event: delta").And.Contain("data: What is dependency ");
+        DoneQuestion(stream).Question.Should().Be("What is dependency injection?");
 
         _factory.Stt.Text = "I pass collaborators through the constructor.";
         using var events = await ConnectAsync("events", session.Id, token);
@@ -141,6 +154,29 @@ public sealed class PracticeApiTests : IClassFixture<ApiFactory>
         var transcript = await client.GetFromJsonAsync<TranscriptDto>($"/api/sessions/{session.Id}/transcript", Json, Ct);
         transcript!.Attempts.Should().ContainSingle().Which.Score.Should().Be(7);
         (await client.GetAsync($"/api/sessions/{session.Id}/transcript/pdf", Ct)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Fact]
+    public async Task Should_AskWithTheChosenCloudModelAndSessionKey_OrStreamItsMessage_When_TheKeyIsMissing()
+    {
+        var (client, _, session) = await SessionAsync("practice-cloud", "MockInterview", start: true);
+        var (keylessClient, _, keyless) = await SessionAsync("practice-cloud-no-key", "MockInterview", start: true);
+        foreach (var user in new[] { client, keylessClient })
+        {
+            (await user.PutAsJsonAsync("/api/preferences/llm", new { Provider = "anthropic", Model = "claude-test" }, Ct)).EnsureSuccessStatusCode();
+        }
+
+        var key = $"test-{Guid.NewGuid():N}";
+        (await client.PutAsJsonAsync($"/api/sessions/{session.Id}/keys/anthropic", new { Key = key }, Ct)).EnsureSuccessStatusCode();
+        _factory.CloudLlm.Tokens = ["Why ", "the cloud?"];
+
+        var asked = await (await client.PostAsync($"/api/sessions/{session.Id}/practice/next", null, Ct)).Content.ReadAsStringAsync(Ct);
+        var refused = await (await keylessClient.PostAsync($"/api/sessions/{keyless.Id}/practice/next", null, Ct)).Content.ReadAsStringAsync(Ct);
+
+        DoneQuestion(asked).Question.Should().Be("Why the cloud?");
+        _factory.CloudLlm.Requests.Should().Contain(r => r.ApiKey == key && r.Model == "claude-test");
+        refused.Should().Contain("event: error").And.Contain(ScriptedCloudLlm.MissingKeyMessage).And.NotContain("event: done");
+        asked.Should().NotContain(key);
     }
 
     [Fact]
@@ -196,15 +232,18 @@ public sealed class PracticeApiTests : IClassFixture<ApiFactory>
     }
 
     [Fact]
-    public async Task Should_Return503_When_ModelIsUnavailable()
+    public async Task Should_StreamAnError_AndOpenNoQuestion_When_ModelIsUnavailable()
     {
         var (client, _, session) = await SessionAsync("practice-llm-down", "MockInterview", start: true);
         _factory.Llm.Fail = true;
         try
         {
             var next = await client.PostAsync($"/api/sessions/{session.Id}/practice/next", null, Ct);
+            var stream = await next.Content.ReadAsStringAsync(Ct);
 
-            next.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+            stream.Should().Contain("event: error").And.NotContain("event: done");
+            (await client.PostAsync($"/api/sessions/{session.Id}/practice/finish", null, Ct))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest); // no question was opened
         }
         finally
         {
