@@ -2,7 +2,7 @@ import { act, fireEvent, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWebPlatform } from '@/platform';
 import { FakeWebSocket } from '@/test/fakeWebSocket';
-import { fakeApi, json, renderWithApp, sampleSession } from '@/test/helpers';
+import { fakeApi, json, renderWithApp, sampleSession, sse } from '@/test/helpers';
 import type { PracticeAttempt } from '@/types/api';
 import { PRACTICE_SILENCE_MS, PracticePanel, PracticeSummaryCard } from './PracticePanel';
 
@@ -14,6 +14,31 @@ const attempt: PracticeAttempt = {
   feedback: 'Add numbers.',
   createdAt: '2026-10-15T09:00:00Z',
 };
+
+function questionStream(question: string, answerFromMs = 0) {
+  return sse(['delta', question], ['done', JSON.stringify({ question, answerFromMs })]);
+}
+
+/** A question stream the test writes to as it goes, to see the text arrive in pieces. */
+function liveStream() {
+  const encoder = new TextEncoder();
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const body = new ReadableStream<Uint8Array>({ start: (c) => void (controller = c) });
+  return {
+    response: () => new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }),
+    send: (event: string, data: string) => controller.enqueue(encoder.encode(`event: ${event}\ndata: ${data}\n\n`)),
+    close: () => controller.close(),
+  };
+}
+
+/** Lets the stream reader catch up: it hops through several promises per chunk. */
+async function settle() {
+  await act(async () => {
+    for (let i = 0; i < 30; i++) {
+      await Promise.resolve();
+    }
+  });
+}
 
 async function flush() {
   await act(async () => {
@@ -32,7 +57,7 @@ function setup(options: { attempts?: PracticeAttempt[]; finish?: () => Response;
   const { api } = fakeApi((url, init) => {
     if (url.endsWith('/practice/next')) {
       calls.next += 1;
-      return options.next ? options.next() : json({ question: 'Why us?' });
+      return options.next ? options.next() : questionStream('Why us?');
     }
     if (url.endsWith('/practice/finish')) {
       calls.finish += 1;
@@ -68,6 +93,30 @@ describe('PracticePanel', () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it('shows the question word by word as it is written, and opens it for the answer once complete (#78)', async () => {
+    const stream = liveStream();
+    const ctx = setup({ next: stream.response });
+    await mount(ctx);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
+    await settle();
+    expect(screen.getByText('Thinking of a question…')).toBeInTheDocument();
+
+    stream.send('delta', 'Why ');
+    await settle();
+    expect(screen.getByLabelText('Question')).toHaveTextContent('Why');
+    expect(screen.queryByText('Thinking of a question…')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Done answering' })).toBeDisabled();
+
+    stream.send('delta', 'us?');
+    stream.send('done', JSON.stringify({ question: 'Why us?', answerFromMs: 0 }));
+    stream.close();
+    await settle();
+    expect(screen.getByLabelText('Question')).toHaveTextContent('Why us?');
+    expect(screen.getByText('Listening…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Done answering' })).toBeEnabled();
   });
 
   it('asks a question and shows only candidate segments as the live answer', async () => {
@@ -111,7 +160,7 @@ describe('PracticePanel', () => {
   });
 
   it('ignores speech that started before the question was shown, even when it arrives late (#78)', async () => {
-    const ctx = setup({ next: () => json({ question: 'Why us?', answerFromMs: 42_000 }) });
+    const ctx = setup({ next: () => questionStream('Why us?', 42_000) });
     await mount(ctx);
     fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
     await flush();
@@ -196,6 +245,18 @@ describe('PracticePanel', () => {
     await flush();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Score')).toHaveTextContent('7/10');
+  });
+
+  it('shows the stream error and keeps "Done answering" off when the model fails part-way', async () => {
+    const ctx = setup({ next: () => sse(['delta', 'Why'], ['error', "Can't reach Ollama."]) });
+    await mount(ctx);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
+    await settle();
+
+    expect(screen.getByRole('alert')).toHaveTextContent("Can't reach Ollama.");
+    expect(screen.queryByLabelText('Question')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Done answering' })).toBeDisabled();
   });
 
   it('shows an error when the next question fails', async () => {

@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using System.Text;
 using InterviewCopilot.Application.Audio;
 using InterviewCopilot.Application.Common.Exceptions;
@@ -15,6 +16,11 @@ namespace InterviewCopilot.Application.Practice;
 /// <param name="Question">The question to show.</param>
 /// <param name="AnswerFromMs">Candidate speech that started before this position (ms) isn't part of the answer.</param>
 public sealed record PracticeQuestionDto(string Question, long AnswerFromMs = 0);
+
+/// <summary>One piece of a streamed question (#78).</summary>
+/// <param name="Delta">Text the model just wrote; empty on the last part.</param>
+/// <param name="Question">Set only on the last part: the whole question, now open for the answer.</param>
+public sealed record PracticeQuestionPart(string Delta, PracticeQuestionDto? Question = null);
 
 public sealed record PracticeAttemptDto(Guid Id, string Question, string AnswerText, int Score, string Feedback, DateTimeOffset CreatedAt)
 {
@@ -46,25 +52,17 @@ public sealed class PracticeService(
 
     public const string NoQuestionMessage = "The model didn't return a question. Try again.";
 
-    public async Task<PracticeQuestionDto> NextAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Checks the session, then streams the next question as the model writes it (#78). The last part carries the
+    /// whole question, which is opened for the answer only then; a model failure surfaces while enumerating.
+    /// </summary>
+    public async Task<IAsyncEnumerable<PracticeQuestionPart>> NextAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)
     {
         var session = await LoadLiveMockAsync(ownerId, sessionId, cancellationToken);
         var asked = await attempts.ListAsync(sessionId, cancellationToken);
-        var reply = await CompleteAsync(
-            session,
-            PracticePromptBuilder.NextQuestion(session, [.. asked.Select(a => a.Question)]),
-            cancellationToken);
-
-        var question = reply.Trim();
-        if (question.Length == 0)
-        {
-            throw new LlmUnavailableException(NoQuestionMessage);
-        }
-
-        // The answer starts now, as the question is shown: speech from while it was being written doesn't count.
-        var answerFromMs = audioClock.PositionMs(sessionId, Speaker.Candidate);
-        collector.Open(sessionId, question, answerFromMs);
-        return new PracticeQuestionDto(question, answerFromMs);
+        collector.Take(sessionId); // a skipped question closes, so the mic rests while the next one is written
+        var request = await RequestAsync(session, PracticePromptBuilder.NextQuestion(session, [.. asked.Select(a => a.Question)]), cancellationToken);
+        return StreamQuestionAsync(sessionId, request, cancellationToken);
     }
 
     public async Task<PracticeAttemptDto> FinishAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)
@@ -142,7 +140,43 @@ public sealed class PracticeService(
         throw new LlmUnavailableException(UnreadableFeedbackMessage);
     }
 
+    private async IAsyncEnumerable<PracticeQuestionPart> StreamQuestionAsync(
+        Guid sessionId,
+        LlmRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        var reply = new StringBuilder();
+        await foreach (var token in llmProviders.Resolve(ProviderNames.Ollama).StreamAsync(request, cancellationToken))
+        {
+            reply.Append(token);
+            yield return new PracticeQuestionPart(token);
+        }
+
+        var question = reply.ToString().Trim();
+        if (question.Length == 0)
+        {
+            throw new LlmUnavailableException(NoQuestionMessage);
+        }
+
+        // The answer starts now, as the question is shown: speech from while it was being written doesn't count.
+        var answerFromMs = audioClock.PositionMs(sessionId, Speaker.Candidate);
+        collector.Open(sessionId, question, answerFromMs);
+        yield return new PracticeQuestionPart(string.Empty, new PracticeQuestionDto(question, answerFromMs));
+    }
+
     private async Task<string> CompleteAsync(Session session, IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken)
+    {
+        var reply = new StringBuilder();
+        var request = await RequestAsync(session, messages, cancellationToken);
+        await foreach (var token in llmProviders.Resolve(ProviderNames.Ollama).StreamAsync(request, cancellationToken))
+        {
+            reply.Append(token);
+        }
+
+        return reply.ToString();
+    }
+
+    private async Task<LlmRequest> RequestAsync(Session session, IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken)
     {
         var options = llmOptions.Value;
         var owner = await preferences.GetAsync(session.OwnerId, cancellationToken);
@@ -152,13 +186,6 @@ public sealed class PracticeService(
             || string.Equals(owner.LlmProvider, ProviderNames.Ollama, StringComparison.OrdinalIgnoreCase);
         var model = ownerUsesOllama && !string.IsNullOrWhiteSpace(owner?.LlmModel) ? owner.LlmModel : options.Model;
 
-        var llm = llmProviders.Resolve(ProviderNames.Ollama);
-        var reply = new StringBuilder();
-        await foreach (var token in llm.StreamAsync(new LlmRequest(model, messages, options.Temperature), cancellationToken))
-        {
-            reply.Append(token);
-        }
-
-        return reply.ToString();
+        return new LlmRequest(model, messages, options.Temperature);
     }
 }

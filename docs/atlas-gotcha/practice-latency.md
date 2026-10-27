@@ -65,7 +65,7 @@ after it to count as my answer, so that practice feels like a real interview.
 | TranscriptionSink / DeepgramStreamingSink | New `IAudioCaptureGate` (Application) | in-process | `bool Accepts(sessionId, speaker)` | Sessions that aren't mock interviews: always true |
 | PracticeAnswerCollector | IAudioCaptureGate | implements it | open question ⇒ accept Candidate | No open question ⇒ drop |
 | PracticeAnswerCollector | Audio sink | in-process | `long PositionMs(sessionId, speaker)` | No stream yet ⇒ 0 |
-| `POST practice/next` | UI | HTTP (question 2 decides JSON or SSE) | adds `answerFromMs` | Errors as today |
+| `POST practice/next` | UI | SSE, as approved in question 2: `delta` events, then `done` carrying `{question, answerFromMs}`, or `error` | adds `answerFromMs` | Checks before the stream (404/400/409) as today; a model failure mid-stream is an `error` event, not a 503 |
 | PracticePanel | Events WS | existing | filters `startMs < answerFromMs` | — |
 
 ### [A] Assemble

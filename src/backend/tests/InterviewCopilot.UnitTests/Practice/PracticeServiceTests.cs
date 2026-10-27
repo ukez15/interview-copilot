@@ -58,12 +58,60 @@ public class PracticeServiceTests
     private async Task AnswerAsync(Guid sessionId, string text) =>
         await _collector.OnSegmentAsync(TranscriptSegment.Create(sessionId, Speaker.Candidate, 0, 1, text), Ct);
 
+    /// <summary>Reads the whole question stream, as the overlay does, and returns the opened question.</summary>
+    private async Task<PracticeQuestionDto> AskAsync(Guid sessionId)
+    {
+        PracticeQuestionDto? asked = null;
+        await foreach (var part in await _service.NextAsync(Owner, sessionId, Ct))
+        {
+            asked = part.Question ?? asked;
+        }
+
+        return asked!;
+    }
+
+    [Fact]
+    public async Task Should_StreamTheQuestion_AndOpenItOnlyOnceItIsComplete()
+    {
+        _llm.Replies.Enqueue(["  Tell me ", "about yourself.\n"]);
+        var parts = new List<PracticeQuestionPart>();
+
+        await foreach (var part in await _service.NextAsync(Owner, _session.Id, Ct))
+        {
+            _collector.IsOpen(_session.Id).Should().Be(part.Question is not null);
+            parts.Add(part);
+        }
+
+        parts.Select(p => p.Delta).Should().Equal("  Tell me ", "about yourself.\n", string.Empty);
+        parts[^1].Question.Should().Be(new PracticeQuestionDto("Tell me about yourself.", 0));
+    }
+
+    [Fact]
+    public async Task Should_CloseTheOpenQuestion_BeforeWritingTheNextOne()
+    {
+        _llm.Replies.Enqueue(["First?"]);
+        _llm.Replies.Enqueue(["Second?"]);
+        await AskAsync(_session.Id);
+
+        var parts = await _service.NextAsync(Owner, _session.Id, Ct);
+
+        _collector.IsOpen(_session.Id).Should().BeFalse("the mic rests while the next question is written");
+        PracticeQuestionDto? second = null;
+        await foreach (var part in parts)
+        {
+            second = part.Question ?? second;
+        }
+
+        second!.Question.Should().Be("Second?");
+        _collector.IsOpen(_session.Id).Should().BeTrue();
+    }
+
     [Fact]
     public async Task Should_AskQuestion_UsingDefaultModel_AndOpenIt()
     {
         _llm.Replies.Enqueue(["  Tell me ", "about yourself.\n"]);
 
-        var next = await _service.NextAsync(Owner, _session.Id, Ct);
+        var next = await AskAsync(_session.Id);
 
         next.Question.Should().Be("Tell me about yourself.");
         _llm.Requests.Single().Model.Should().Be("default-model");
@@ -76,7 +124,7 @@ public class PracticeServiceTests
         _audioClock.Position = 42_000;
         _llm.Replies.Enqueue(["Why us?"]);
 
-        var next = await _service.NextAsync(Owner, _session.Id, Ct);
+        var next = await AskAsync(_session.Id);
         await _collector.OnSegmentAsync(TranscriptSegment.Create(_session.Id, Speaker.Candidate, 30_000, 31_000, "said while it was thinking"), Ct);
         await _collector.OnSegmentAsync(TranscriptSegment.Create(_session.Id, Speaker.Candidate, 43_000, 44_000, "my answer"), Ct);
 
@@ -95,7 +143,7 @@ public class PracticeServiceTests
         _prefs.Add(prefs);
         _llm.Replies.Enqueue(["Q?"]);
 
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
 
         _llm.Requests.Single().Model.Should().Be(expectedModel);
     }
@@ -106,7 +154,7 @@ public class PracticeServiceTests
         _store.Add(PracticeAttempt.Create(_session.Id, "Old question?", "a", 5, "f", FixedClock.Default));
         _llm.Replies.Enqueue(["New?"]);
 
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
 
         _llm.Requests.Single().Messages[1].Content.Should().Contain("- Old question?");
     }
@@ -116,10 +164,10 @@ public class PracticeServiceTests
     {
         _llm.Replies.Enqueue(["First?"]);
         _llm.Replies.Enqueue(["Second?"]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
         await AnswerAsync(_session.Id, "stale words");
 
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
 
         _collector.Take(_session.Id).Should().Be(new CollectedAnswer("Second?", string.Empty));
     }
@@ -129,7 +177,7 @@ public class PracticeServiceTests
     {
         _llm.Replies.Enqueue(["Why us?"]);
         _llm.Replies.Enqueue(["SCORE: 8\n", "FEEDBACK: Clear structure."]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
         await AnswerAsync(_session.Id, "Because of the mission.");
         await AnswerAsync(_session.Id, "And the team.");
 
@@ -151,7 +199,7 @@ public class PracticeServiceTests
         _llm.Replies.Enqueue(["Q?"]);
         _llm.Replies.Enqueue(["I think it was good."]);
         _llm.Replies.Enqueue([GoodReply]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
         await AnswerAsync(_session.Id, "words");
 
         var attempt = await _service.FinishAsync(Owner, _session.Id, Ct);
@@ -167,7 +215,7 @@ public class PracticeServiceTests
         _llm.Replies.Enqueue(["nope"]);
         _llm.Replies.Enqueue(["still nope"]);
         _llm.Replies.Enqueue([GoodReply]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
         await AnswerAsync(_session.Id, "words");
 
         var act = () => _service.FinishAsync(Owner, _session.Id, Ct);
@@ -182,7 +230,7 @@ public class PracticeServiceTests
     public async Task Should_Throw_AndSaveNothing_When_AnswerIsEmpty()
     {
         _llm.Replies.Enqueue(["Q?"]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
 
         var act = () => _service.FinishAsync(Owner, _session.Id, Ct);
 
@@ -204,7 +252,7 @@ public class PracticeServiceTests
     {
         _llm.Replies.Enqueue(["   "]);
 
-        var act = () => _service.NextAsync(Owner, _session.Id, Ct);
+        var act = () => AskAsync(_session.Id);
 
         await act.Should().ThrowAsync<LlmUnavailableException>();
         _collector.Take(_session.Id).Should().BeNull();
@@ -217,8 +265,8 @@ public class PracticeServiceTests
         _llm.Replies.Enqueue(["A?"]);
         _llm.Replies.Enqueue(["B?"]);
         _llm.Replies.Enqueue([GoodReply]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
-        await _service.NextAsync(Owner, other.Id, Ct);
+        await AskAsync(_session.Id);
+        await AskAsync(other.Id);
         await AnswerAsync(other.Id, "only B");
 
         var attempt = await _service.FinishAsync(Owner, other.Id, Ct);

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fakeApi, json, sse } from '@/test/helpers';
-import { ApiClient, ApiError } from './api';
+import { ApiClient, ApiError, QUESTION_STREAM_ENDED } from './api';
 import { SseParser } from './sse';
 import { clampOpacity, cn, OVERLAY_OPACITY } from './utils';
 
@@ -169,6 +169,24 @@ describe('ApiClient', () => {
       ['PUT /api/preferences/speech-to-text', JSON.stringify({ provider: null })],
       ['PUT /api/sessions/s1/keys/openai', JSON.stringify({ key: 'sk-test' })],
     ]);
+  });
+
+  it('streams the next practice question and resolves with the opened question (#78)', async () => {
+    const { api } = fakeApi(() => sse(['delta', 'Why '], ['delta', 'us?'], ['done', '{"question":"Why us?","answerFromMs":4200}']));
+    const tokens: string[] = [];
+
+    const asked = await api.practiceNext('s1', (token) => tokens.push(token));
+
+    expect(tokens).toEqual(['Why ', 'us?']);
+    expect(asked).toEqual({ question: 'Why us?', answerFromMs: 4200 });
+  });
+
+  it('rejects the practice question with the stream error, or when the stream ends early', async () => {
+    const failing = fakeApi(() => sse(['delta', 'Why'], ['error', "Can't reach Ollama."])).api;
+    const cut = fakeApi(() => sse(['delta', 'Why'])).api;
+
+    await expect(failing.practiceNext('s1')).rejects.toThrow("Can't reach Ollama.");
+    await expect(cut.practiceNext('s1')).rejects.toThrow(QUESTION_STREAM_ENDED);
   });
 
   it('streams answer events to the handlers and sends the BYOK key header', async () => {

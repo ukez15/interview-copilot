@@ -26,6 +26,8 @@ function ScoreCard({ attempt }: { attempt: PracticeAttempt }) {
 export function PracticePanel({ sessionId, live }: { sessionId: string; live: boolean }) {
   const { api } = useApp();
   const [question, setQuestion] = useState<string | null>(null);
+  // The question as the model writes it (#78); replaced by `question` once it's complete.
+  const [draft, setDraft] = useState('');
   const [segments, setSegments] = useState<string[]>([]);
   const [result, setResult] = useState<PracticeAttempt | null>(null);
   const [busy, setBusy] = useState<'asking' | 'scoring' | null>(null);
@@ -83,14 +85,17 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
     open.current = false;
     setBusy('asking');
     setError(null);
+    setQuestion(null);
+    setDraft('');
+    setSegments([]);
+    setResult(null);
     try {
-      const asked = await api.practiceNext(sessionId);
+      const asked = await api.practiceNext(sessionId, (token) => setDraft((previous) => previous + token));
       answerFromMs.current = asked.answerFromMs;
       open.current = true;
       setQuestion(asked.question);
-      setSegments([]);
-      setResult(null);
     } catch (err) {
+      setDraft('');
       setError(err instanceof Error ? err.message : 'Could not get a question.');
     } finally {
       setBusy(null);
@@ -114,12 +119,12 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
           {error}
         </p>
       )}
-      {busy === 'asking' && <p className="text-sm text-muted-foreground">Thinking of a question…</p>}
+      {busy === 'asking' && !draft.trim() && <p className="text-sm text-muted-foreground">Thinking of a question…</p>}
       {busy === 'scoring' && <p className="text-sm text-muted-foreground">Scoring your answer…</p>}
-      {question && (
+      {(question ?? draft.trim()) && (
         <div className="grid gap-1">
           <CardTitle>Question</CardTitle>
-          <p>{question}</p>
+          <p aria-label="Question">{question ?? draft.trim()}</p>
         </div>
       )}
       {question && (
