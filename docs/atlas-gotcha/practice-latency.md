@@ -167,3 +167,36 @@ thresholds or the Whisper model (yes/no).
   owner's Ollama stats.
 - **Not verifiable in the cloud session:** the speed-up and the 5 s wait need the owner's check on Windows
   with Ollama and the mic. The backend tests ran in CI only.
+
+---
+
+## Changes after the owner's second test (2026-10-27, test installer e67b4bf)
+
+Status: **awaiting the owner's OK.** No code until then.
+
+What the owner saw: questions now come quickly, word by word. But scoring started while they were still
+answering (once after about 12 words). "(mumbles)" appeared as their answer, and words they'd said
+(such as "microservices") only showed up after scoring.
+
+Causes:
+1. **Auto-finish counts gaps in text, not silence.** The overlay scores once 4 s pass without a new
+   Candidate segment. A segment only exists after a 0.6 s pause (or 15 s of non-stop talking), and Whisper
+   then needs a few seconds on the CPU, so a 4 s gap between segments is normal mid-answer.
+2. **The overlay stops listening once scoring starts,** but the backend's 5 s last-words wait still adds
+   segments. They're scored without ever being shown.
+3. **Whisper labels noise** as "(mumbles)", "[BLANK_AUDIO]", "(music)" and so on, and nothing filters them.
+4. **The mic is muted while the question is written** (by design), but the overlay doesn't say so.
+
+Proposed changes:
+- **A. Silence means no voice.** The backend already knows from the voice detector when the candidate last
+  spoke. Once a question is open, if 6 s pass with no voice *and* everything said has been transcribed, it
+  sends one new session event (`practice.silence`), and the overlay scores. The 4 s text timer goes.
+  "Done answering" still works at any time, with its 5 s last-words wait.
+- **B. Show every word that's scored.** The overlay keeps adding live lines while scoring, then shows the
+  exact scored text, as today.
+- **C. Drop Whisper's noise labels.** A segment whose whole text is a bracketed label, like "(mumbles)" or
+  "[BLANK_AUDIO]", is discarded before it's saved or shown, in every mode.
+- **D. Say when the mic listens.** While the question is being written, the overlay shows "The mic
+  listens once the question is complete."
+
+Out of scope: the speech model's accuracy (model size, mic level). That's a separate issue if needed.
