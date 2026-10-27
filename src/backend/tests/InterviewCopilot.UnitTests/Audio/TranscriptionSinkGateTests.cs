@@ -80,6 +80,47 @@ public sealed class TranscriptionSinkGateTests
     }
 
     [Fact]
+    public async Task Should_ReportNothingTranscribed_UntilTheWorkerMarksIt()
+    {
+        var sink = Sink();
+        var session = Guid.NewGuid();
+        await SendAsync(sink, session, Speaker.Candidate, 2);
+        sink.NewPipelines.TryRead(out var pipeline).Should().BeTrue();
+
+        sink.TranscribedThroughMs(session, Speaker.Candidate).Should().Be(0);
+        sink.MarkTranscribed(pipeline!, Speaker.Candidate, 200);
+
+        sink.TranscribedThroughMs(session, Speaker.Candidate).Should().Be(200);
+        sink.TranscribedThroughMs(session, Speaker.Interviewer).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Should_IgnoreMarksFromAnEndedPipeline()
+    {
+        var sink = Sink();
+        var session = Guid.NewGuid();
+        await SendAsync(sink, session, Speaker.Candidate, 1);
+        sink.NewPipelines.TryRead(out var ended).Should().BeTrue();
+        await sink.OnStreamEndedAsync(session, Ct);
+        await SendAsync(sink, session, Speaker.Candidate, 1);
+
+        sink.MarkTranscribed(ended!, Speaker.Candidate, 5_000);
+
+        sink.TranscribedThroughMs(session, Speaker.Candidate).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Should_ReportEverythingTranscribed_When_NoLocalPipelineHoldsTheAudio()
+    {
+        var sink = Sink(deepgram: true);
+        var session = Guid.NewGuid();
+
+        await SendAsync(sink, session, Speaker.Candidate, 3);
+
+        sink.TranscribedThroughMs(session, Speaker.Candidate).Should().Be(300);
+    }
+
+    [Fact]
     public async Task Should_CountDeepgramSessionsOnTheClock()
     {
         var sink = Sink(deepgram: true);

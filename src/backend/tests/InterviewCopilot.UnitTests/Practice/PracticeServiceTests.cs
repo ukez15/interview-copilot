@@ -28,8 +28,13 @@ public class PracticeServiceTests
     public PracticeServiceTests()
     {
         _session = NewSession(SessionMode.MockInterview, start: true);
+        _service = CreateService(new FixedClock());
+    }
+
+    private PracticeService CreateService(TimeProvider clock)
+    {
         var sessions = new SessionService(_store, _store, new FixedClock());
-        _service = new PracticeService(
+        return new PracticeService(
             sessions,
             _store,
             _store,
@@ -37,7 +42,7 @@ public class PracticeServiceTests
             new LlmProviderResolver([_llm]),
             Options.Create(new LlmOptions { Model = "default-model", Temperature = 0.3 }),
             _collector,
-            new FixedClock(),
+            clock,
             _audioClock);
     }
 
@@ -191,6 +196,56 @@ public class PracticeServiceTests
         _store.SaveCount.Should().Be(1);
         _collector.Take(_session.Id).Should().BeNull();
         (await _service.ListAsync(Owner, _session.Id, Ct)).Should().ContainSingle().Which.Id.Should().Be(attempt.Id);
+    }
+
+    [Fact]
+    public async Task Should_WaitForTheLastWords_BeforeScoring()
+    {
+        _llm.Replies.Enqueue(["Why us?"]);
+        _llm.Replies.Enqueue([GoodReply]);
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "Because of the mission.");
+        _audioClock.Position = 5_000;
+        _audioClock.TranscribedThrough = 3_000; // "Done answering" came while the last sentence was still in Whisper
+
+        var finishing = _service.FinishAsync(Owner, _session.Id, Ct);
+        await Task.Delay(150, Ct);
+        finishing.IsCompleted.Should().BeFalse();
+        await AnswerAsync(_session.Id, "And the team.");
+        _audioClock.TranscribedThrough = 5_000;
+
+        (await finishing).AnswerText.Should().Be("Because of the mission. And the team.");
+    }
+
+    [Fact]
+    public async Task Should_StopWaitingAfterFiveSeconds_AndScoreWhatWasHeard()
+    {
+        var timers = new InstantTimers();
+        var service = CreateService(timers);
+        _llm.Replies.Enqueue(["Why us?"]);
+        _llm.Replies.Enqueue([GoodReply]);
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "Because of the mission.");
+        _audioClock.Position = 5_000;
+        _audioClock.TranscribedThrough = 3_000; // never catches up
+
+        var attempt = await service.FinishAsync(Owner, _session.Id, Ct);
+
+        attempt.AnswerText.Should().Be("Because of the mission.");
+        timers.Created.Should().Be(PracticeService.LastWordsWaitMs / PracticeService.LastWordsPollMs);
+    }
+
+    [Fact]
+    public async Task Should_NotWait_When_NoQuestionIsOpen()
+    {
+        var timers = new InstantTimers();
+        var service = CreateService(timers);
+        _audioClock.TranscribedThrough = -1;
+
+        var act = () => service.FinishAsync(Owner, _session.Id, Ct);
+
+        await act.Should().ThrowAsync<DomainException>();
+        timers.Created.Should().Be(0);
     }
 
     [Fact]

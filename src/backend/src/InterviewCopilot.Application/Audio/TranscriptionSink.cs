@@ -17,6 +17,7 @@ public sealed class TranscriptionSink : IAudioFrameSink, IAudioStreamClock
     private readonly IAudioCaptureGate _gate;
     private readonly ConcurrentDictionary<Guid, SessionPipeline> _pipelines = new();
     private readonly ConcurrentDictionary<(Guid SessionId, Speaker Speaker), StreamCounter> _received = new();
+    private readonly ConcurrentDictionary<(Guid SessionId, Speaker Speaker), long> _transcribed = new();
     private readonly Channel<SessionPipeline> _newPipelines = Channel.CreateUnbounded<SessionPipeline>(
         new UnboundedChannelOptions { SingleReader = true });
 
@@ -38,6 +39,27 @@ public sealed class TranscriptionSink : IAudioFrameSink, IAudioStreamClock
     /// <inheritdoc />
     public long PositionMs(Guid sessionId, Speaker speaker) =>
         _received.TryGetValue((sessionId, speaker), out var counter) ? counter.Value * VadOptions.FrameMs : 0;
+
+    /// <inheritdoc />
+    /// <remarks>Deepgram sessions, and sessions with no audio queued here, have nothing to wait for.</remarks>
+    public long TranscribedThroughMs(Guid sessionId, Speaker speaker)
+    {
+        if (!_pipelines.ContainsKey(sessionId))
+        {
+            return PositionMs(sessionId, speaker);
+        }
+
+        return _transcribed.TryGetValue((sessionId, speaker), out var throughMs) ? throughMs : 0;
+    }
+
+    /// <summary>Records how far the worker has transcribed; a pipeline that was since replaced is ignored.</summary>
+    internal void MarkTranscribed(SessionPipeline pipeline, Speaker speaker, long throughMs)
+    {
+        if (_pipelines.TryGetValue(pipeline.SessionId, out var current) && ReferenceEquals(current, pipeline))
+        {
+            _transcribed[(pipeline.SessionId, speaker)] = throughMs;
+        }
+    }
 
     /// <summary>
     /// Numbers the frame, then copies it into the session's queue and returns immediately. Deepgram-routed
@@ -78,6 +100,7 @@ public sealed class TranscriptionSink : IAudioFrameSink, IAudioStreamClock
         foreach (var speaker in Enum.GetValues<Speaker>())
         {
             _received.TryRemove((sessionId, speaker), out _);
+            _transcribed.TryRemove((sessionId, speaker), out _);
         }
 
         return ValueTask.CompletedTask;

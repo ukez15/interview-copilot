@@ -42,4 +42,13 @@ public interface IAudioStreamClock
     /// <param name="speaker">Whose stream.</param>
     /// <returns>Milliseconds of audio received so far; 0 before the first frame.</returns>
     long PositionMs(Guid sessionId, Speaker speaker);
+
+    /// <summary>
+    /// How far transcription has caught up (#78): speech that started before this position has been transcribed
+    /// and handed to listeners. Equals <see cref="PositionMs"/> when no audio is waiting to be transcribed here.
+    /// </summary>
+    /// <param name="sessionId">The session.</param>
+    /// <param name="speaker">Whose stream.</param>
+    /// <returns>A position in milliseconds, at most <see cref="PositionMs"/>.</returns>
+    long TranscribedThroughMs(Guid sessionId, Speaker speaker);
 }

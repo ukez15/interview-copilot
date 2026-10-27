@@ -117,6 +117,9 @@ public sealed partial class TranscriptionWorker : BackgroundService
                 {
                     await TranscribeAsync(pipeline.SessionId, speaker, segment, cancellationToken);
                 }
+
+                // Only now, with any segment delivered, does the speaker's stream count as transcribed this far.
+                _sink.MarkTranscribed(pipeline, speaker, buffer.CutThroughMs);
             }
 
             // The stream ended and the queue is empty: transcribe what each speaker was still saying.

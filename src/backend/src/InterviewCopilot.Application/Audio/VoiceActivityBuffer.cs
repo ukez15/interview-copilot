@@ -35,6 +35,9 @@ public sealed class VoiceActivityBuffer
     /// <summary>True while speech is buffered and not yet cut into a segment.</summary>
     public bool HasSpeech => _frames.Count > 0;
 
+    /// <summary>Everything before this stream position (ms) has been cut into segments or found to be silence.</summary>
+    public long CutThroughMs => HasSpeech ? _startMs : _frameIndex * VadOptions.FrameMs;
+
     /// <summary>Adds the next 100 ms frame. The buffer keeps a reference, so the caller must not change it afterwards.</summary>
     /// <param name="pcm16">One frame of PCM16 little-endian samples.</param>
     /// <returns>A finished segment, or null when nothing ended on this frame.</returns>

@@ -49,6 +49,12 @@ public sealed class PracticeService(
     /// <summary>Extra tries when the model's score reply can't be parsed.</summary>
     public const int ScoreRetries = 1;
 
+    /// <summary>How long "Done answering" waits for the candidate's last words to be transcribed (#78).</summary>
+    public const int LastWordsWaitMs = 5_000;
+
+    /// <summary>How often that wait checks whether transcription has caught up.</summary>
+    public const int LastWordsPollMs = 100;
+
     public const string NoAnswerMessage = "No answer heard.";
 
     public const string UnreadableFeedbackMessage = "The model's feedback couldn't be read. Try again.";
@@ -71,6 +77,7 @@ public sealed class PracticeService(
     public async Task<PracticeAttemptDto> FinishAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)
     {
         var session = await LoadLiveMockAsync(ownerId, sessionId, cancellationToken);
+        await WaitForLastWordsAsync(sessionId, cancellationToken);
         var collected = collector.Take(sessionId);
         if (collected is null || string.IsNullOrWhiteSpace(collected.Answer))
         {
@@ -106,6 +113,26 @@ public sealed class PracticeService(
         RequireMock(session);
         var saved = await attempts.ListAsync(sessionId, cancellationToken);
         return [.. saved.OrderBy(a => a.CreatedAt).Select(PracticeAttemptDto.From)];
+    }
+
+    /// <summary>
+    /// "Done answering" often comes just as the candidate stops talking, while their last sentence is still being
+    /// transcribed. Gives it up to <see cref="LastWordsWaitMs"/>, keeping the question open so the mic still listens.
+    /// </summary>
+    private async Task WaitForLastWordsAsync(Guid sessionId, CancellationToken cancellationToken)
+    {
+        if (!collector.IsOpen(sessionId))
+        {
+            return;
+        }
+
+        var spokenUpToMs = audioClock.PositionMs(sessionId, Speaker.Candidate);
+        for (var waitedMs = 0;
+             waitedMs < LastWordsWaitMs && audioClock.TranscribedThroughMs(sessionId, Speaker.Candidate) < spokenUpToMs;
+             waitedMs += LastWordsPollMs)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(LastWordsPollMs), clock, cancellationToken);
+        }
     }
 
     private static void RequireMock(Session session)
