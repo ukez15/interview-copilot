@@ -1,6 +1,6 @@
 # Practice mode latency and stale speech — ATLAS + GOTCHA brief
 
-Status: **draft, waiting for the owner's OK.** No code until then.
+Status: **approved by the owner with the recommendations (2026-10-26)**, issue #78, PR #79.
 Permanent rules: `GOTCHA-PROJECT.md` and `CLAUDE.md`. Builds on `practice-overlay.md` (#74).
 
 ## What the owner saw (2026-10-26, test installer 76a1211)
@@ -145,3 +145,25 @@ thresholds or the Whisper model (yes/no).
 7. **Local models only (owner, 2026-10-27).** The 2,000 limit applies only when the question runs on the
    local model (Ollama). A cloud model gets the full 6,000 (`QuestionDocumentBudgetFor`). Practice runs on
    Ollama only in this wave, so the cloud rule matters once practice gains cloud models.
+
+---
+
+## What we adjusted
+
+- **Step 1's backend code came before its tests** (the mic gate and stream clock). That broke the tests-first
+  rule. The tests followed in the same PR, and three CI rounds caught what they found: a redundant `!`
+  (S8969), an ambiguous test double (CS0104), and the clock not restarting when a stream reconnects.
+- **The stream clock restarts when a stream ends,** so a reconnected stream's times start at 0, as its
+  segment times always have. A reconnect while a question is open can therefore drop the rest of that
+  answer; you'd click Next question again. Not worth more code for a rare case.
+- **Deepgram sessions aren't gated** and skip the 5 s wait: they use no local CPU, and gating would put
+  Deepgram's own clock out of step.
+- **Skipping a question closes it at once,** so the mic rests while the next one is written. That wasn't in
+  the brief; it closes a gap the gate left.
+- **The question stream's last event carries the result:** `done` holds `{question, answerFromMs}` (live
+  answers send an empty `done`). Live answers and practice share one relay, `LlmEventStream`, so a model
+  failure is an `error` event in both. A model failure on Next question is no longer a 503.
+- **The 2,000 budget (question 6) and "local models only" (question 7)** were added after approval, from the
+  owner's Ollama stats.
+- **Not verifiable in the cloud session:** the speed-up and the 5 s wait need the owner's check on Windows
+  with Ollama and the mic. The backend tests ran in CI only.

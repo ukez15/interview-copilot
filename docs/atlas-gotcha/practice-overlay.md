@@ -1,6 +1,6 @@
 # Practice mode in the overlay — ATLAS + GOTCHA brief
 
-Status: **draft, waiting for the owner's OK.** No code until then.
+Status: **approved by the owner (2026-10-26)**, issues #74 and #77, PR #79.
 Permanent rules: `GOTCHA-PROJECT.md` and `CLAUDE.md`. This brief only adds what's specific to this change.
 
 ## User story
@@ -178,3 +178,17 @@ scrolling. These changes were agreed:
    where the practice work lives; the v0.2 above was a mistake.)
 
 Approved by the owner with the recommendations (2026-10-26).
+
+---
+
+## What we adjusted
+
+- **No `compact` prop.** The plan was one practice panel with a compact variant for the overlay. Since
+  practice now only runs in the overlay, the panel itself became the overlay version, and the main window
+  got a small `PracticeSummaryCard` ("Practising in the overlay." plus the scored attempts).
+- **Attempts reload when the main window regains focus.** No event reaches the main window when the
+  overlay scores an answer, so the summary card refetches on `focus` rather than adding a new event.
+- **Capture status became a shared hook** (`useCaptureStatus`), used by the overlay's mic line and the
+  main window's capture indicator, instead of a second polling loop.
+- **Bug #77 was found during the owner's test,** not planned: the CSP blocked the events socket. Fixed
+  here with a test that guards the `connect-src` entry.
