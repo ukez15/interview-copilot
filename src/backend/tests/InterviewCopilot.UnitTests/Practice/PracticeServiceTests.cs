@@ -186,7 +186,7 @@ public class PracticeServiceTests
         await AnswerAsync(_session.Id, "Because of the mission.");
         await AnswerAsync(_session.Id, "And the team.");
 
-        var attempt = await _service.FinishAsync(Owner, _session.Id, Ct);
+        var attempt = await ScoreAsync(_session.Id);
 
         attempt.Score.Should().Be(8);
         attempt.Feedback.Should().Be("Clear structure.");
@@ -196,6 +196,77 @@ public class PracticeServiceTests
         _store.SaveCount.Should().Be(1);
         _collector.Take(_session.Id).Should().BeNull();
         (await _service.ListAsync(Owner, _session.Id, Ct)).Should().ContainSingle().Which.Id.Should().Be(attempt.Id);
+    }
+
+    /// <summary>Reads the whole score stream, as the overlay does, and returns the saved attempt.</summary>
+    private async Task<PracticeAttemptDto> ScoreAsync(Guid sessionId, PracticeService? service = null)
+    {
+        PracticeAttemptDto? saved = null;
+        await foreach (var part in await (service ?? _service).FinishAsync(Owner, sessionId, Ct))
+        {
+            saved = part.Attempt ?? saved;
+        }
+
+        return saved!;
+    }
+
+    [Fact]
+    public async Task Should_StreamTheScoreFirst_ThenTheFeedback_ThenTheSavedAttempt()
+    {
+        _llm.Replies.Enqueue(["Why us?"]);
+        _llm.Replies.Enqueue(["SCORE: ", "8", "\n", "FEEDBACK: Clear ", "structure."]);
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "Because of the mission.");
+        var parts = new List<PracticeScorePart>();
+
+        await foreach (var part in await _service.FinishAsync(Owner, _session.Id, Ct))
+        {
+            parts.Add(part);
+        }
+
+        parts[0].Score.Should().Be(8);
+        string.Concat(parts.Select(p => p.Delta)).Should().Be("Clear structure.");
+        parts.Should().ContainSingle(p => p.Attempt != null).Which.Should().BeSameAs(parts[^1]);
+        parts[^1].Attempt!.Feedback.Should().Be("Clear structure.");
+    }
+
+    [Fact]
+    public async Task Should_TellTheOverlayToStartAgain_When_TheFirstReplyCannotBeRead()
+    {
+        _llm.Replies.Enqueue(["Q?"]);
+        _llm.Replies.Enqueue(["SCORE: 99\nFEEDBACK: garbled"]);
+        _llm.Replies.Enqueue([GoodReply]);
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "words");
+        var parts = new List<PracticeScorePart>();
+
+        await foreach (var part in await _service.FinishAsync(Owner, _session.Id, Ct))
+        {
+            parts.Add(part);
+        }
+
+        var restart = parts.FindIndex(p => p.Restart);
+        restart.Should().BePositive("the garbled feedback was streamed first");
+        string.Concat(parts.Skip(restart + 1).Select(p => p.Delta)).Should().Be("Clear structure.");
+        parts[^1].Attempt!.Score.Should().Be(8);
+    }
+
+    [Fact]
+    public async Task Should_KeepTheAnswer_When_TheOverlayStopsReadingMidScore()
+    {
+        _llm.Replies.Enqueue(["Q?"]);
+        _llm.Replies.Enqueue(["SCORE: 8\n", "FEEDBACK: Clear ", "structure."]);
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "words");
+
+        await foreach (var part in await _service.FinishAsync(Owner, _session.Id, Ct))
+        {
+            part.Score.Should().Be(8);
+            break; // the client went away
+        }
+
+        _store.Attempts.Should().BeEmpty();
+        _collector.IsOpen(_session.Id).Should().BeTrue("the candidate can score it again");
     }
 
     [Fact]
@@ -208,7 +279,7 @@ public class PracticeServiceTests
         _audioClock.Position = 5_000;
         _audioClock.TranscribedThrough = 3_000; // "Done answering" came while the last sentence was still in Whisper
 
-        var finishing = _service.FinishAsync(Owner, _session.Id, Ct);
+        var finishing = ScoreAsync(_session.Id);
         await Task.Delay(150, Ct);
         finishing.IsCompleted.Should().BeFalse();
         await AnswerAsync(_session.Id, "And the team.");
@@ -229,7 +300,7 @@ public class PracticeServiceTests
         _audioClock.Position = 5_000;
         _audioClock.TranscribedThrough = 3_000; // never catches up
 
-        var attempt = await service.FinishAsync(Owner, _session.Id, Ct);
+        var attempt = await ScoreAsync(_session.Id, service);
 
         attempt.AnswerText.Should().Be("Because of the mission.");
         timers.Created.Should().Be(PracticeService.LastWordsWaitMs / PracticeService.LastWordsPollMs);
@@ -257,7 +328,7 @@ public class PracticeServiceTests
         await AskAsync(_session.Id);
         await AnswerAsync(_session.Id, "words");
 
-        var attempt = await _service.FinishAsync(Owner, _session.Id, Ct);
+        var attempt = await ScoreAsync(_session.Id);
 
         attempt.Score.Should().Be(8);
         _llm.Requests.Should().HaveCount(3);
@@ -273,12 +344,12 @@ public class PracticeServiceTests
         await AskAsync(_session.Id);
         await AnswerAsync(_session.Id, "words");
 
-        var act = () => _service.FinishAsync(Owner, _session.Id, Ct);
+        var act = () => ScoreAsync(_session.Id);
 
         (await act.Should().ThrowAsync<LlmUnavailableException>())
             .WithMessage("The model's feedback couldn't be read. Try again.");
         _store.Attempts.Should().BeEmpty();
-        (await _service.FinishAsync(Owner, _session.Id, Ct)).AnswerText.Should().Be("words"); // kept for a retry
+        (await ScoreAsync(_session.Id)).AnswerText.Should().Be("words"); // kept for a retry
     }
 
     [Fact]
@@ -324,7 +395,7 @@ public class PracticeServiceTests
         await AskAsync(other.Id);
         await AnswerAsync(other.Id, "only B");
 
-        var attempt = await _service.FinishAsync(Owner, other.Id, Ct);
+        var attempt = await ScoreAsync(other.Id);
 
         attempt.Question.Should().Be("B?");
         (await _service.ListAsync(Owner, _session.Id, Ct)).Should().BeEmpty();

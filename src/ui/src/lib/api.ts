@@ -24,6 +24,8 @@ export const DEFAULT_API_BASE_URL = 'http://127.0.0.1:5480';
 
 export const QUESTION_STREAM_ENDED = 'The question stopped before it was finished. Try again.';
 
+export const SCORE_STREAM_ENDED = 'Scoring stopped before it was finished. Try again.';
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -39,6 +41,12 @@ export interface AnswerStreamHandlers {
   onToken: (token: string) => void;
   onError: (message: string) => void;
   onDone: () => void;
+}
+
+export interface ScoreStreamHandlers {
+  onScore?: (score: number) => void;
+  onToken?: (token: string) => void;
+  onRestart?: () => void;
 }
 
 export interface AskInput {
@@ -154,9 +162,36 @@ export class ApiClient {
     return asked;
   }
 
-  /** #26: scores the answer heard since the question was asked and saves the attempt. */
-  practiceFinish(sessionId: string): Promise<PracticeAttempt> {
-    return this.json(`/api/sessions/${sessionId}/practice/finish`, { method: 'POST' });
+  /**
+   * #26: scores the answer heard since the question was asked and saves the attempt. The score streams in as it's
+   * written (#78): `onScore` once, `onToken` for each piece of feedback, and `onRestart` if the model's reply had
+   * to be asked again (drop what was shown). Resolves with the saved attempt.
+   */
+  async practiceFinish(sessionId: string, handlers: ScoreStreamHandlers = {}): Promise<PracticeAttempt> {
+    const response = await this.send(`/api/sessions/${sessionId}/practice/finish`, { method: 'POST' });
+    let saved: PracticeAttempt | null = null;
+    await readEvents(response, (event) => {
+      switch (event.event) {
+        case 'score':
+          handlers.onScore?.(Number(event.data));
+          break;
+        case 'delta':
+          handlers.onToken?.(event.data);
+          break;
+        case 'restart':
+          handlers.onRestart?.();
+          break;
+        case 'error':
+          throw new ApiError(response.status, event.data);
+        case 'done':
+          saved = JSON.parse(event.data) as PracticeAttempt;
+          break;
+      }
+    });
+    if (!saved) {
+      throw new ApiError(response.status, SCORE_STREAM_ENDED);
+    }
+    return saved;
   }
 
   practiceAttempts(sessionId: string): Promise<PracticeAttempt[]> {

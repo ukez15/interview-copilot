@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fakeApi, json, sse } from '@/test/helpers';
-import { ApiClient, ApiError, QUESTION_STREAM_ENDED } from './api';
+import { ApiClient, ApiError, QUESTION_STREAM_ENDED, SCORE_STREAM_ENDED } from './api';
 import { SseParser } from './sse';
 import { clampOpacity, cn, OVERLAY_OPACITY } from './utils';
 
@@ -179,6 +179,31 @@ describe('ApiClient', () => {
 
     expect(tokens).toEqual(['Why ', 'us?']);
     expect(asked).toEqual({ question: 'Why us?', answerFromMs: 4200 });
+  });
+
+  it('streams the score, then the feedback, and resolves with the saved attempt (#78)', async () => {
+    const attempt = { id: 'a1', question: 'Why us?', answerText: 'Because.', score: 7, feedback: 'Add numbers.', createdAt: '2026-10-29T09:00:00Z' };
+    const { api } = fakeApi(() =>
+      sse(['score', '7'], ['delta', 'Add '], ['restart', ''], ['delta', 'Add '], ['delta', 'numbers.'], ['done', JSON.stringify(attempt)]),
+    );
+    const seen: string[] = [];
+
+    const saved = await api.practiceFinish('s1', {
+      onScore: (score) => seen.push(`score ${score}`),
+      onToken: (token) => seen.push(token),
+      onRestart: () => seen.push('restart'),
+    });
+
+    expect(seen).toEqual(['score 7', 'Add ', 'restart', 'Add ', 'numbers.']);
+    expect(saved).toEqual(attempt);
+  });
+
+  it('rejects the score with the stream error, or when the stream ends early', async () => {
+    const failing = fakeApi(() => sse(['score', '7'], ['error', "The model's feedback couldn't be read. Try again."])).api;
+    const cut = fakeApi(() => sse(['score', '7'])).api;
+
+    await expect(failing.practiceFinish('s1')).rejects.toThrow("The model's feedback couldn't be read. Try again.");
+    await expect(cut.practiceFinish('s1')).rejects.toThrow(SCORE_STREAM_ENDED);
   });
 
   it('rejects the practice question with the stream error, or when the stream ends early', async () => {

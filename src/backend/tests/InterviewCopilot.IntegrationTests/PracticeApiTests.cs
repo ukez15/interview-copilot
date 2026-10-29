@@ -109,15 +109,17 @@ public sealed class PracticeApiTests : IClassFixture<ApiFactory>
         return await client.PostAsync($"/api/sessions/{sessionId}/practice/finish", null, Ct);
     }
 
-    /// <summary>The question the stream's "done" event carries (#78).</summary>
-    private static PracticeQuestionDto DoneQuestion(string stream)
+    /// <summary>What the stream's "done" event carries: the question, or the saved attempt (#78).</summary>
+    private static T Done<T>(string stream)
     {
         const string marker = "event: done\ndata: ";
         var start = stream.IndexOf(marker, StringComparison.Ordinal);
         start.Should().BeGreaterThanOrEqualTo(0, "the stream ends with a done event");
         var data = stream[(start + marker.Length)..].Split('\n')[0];
-        return JsonSerializer.Deserialize<PracticeQuestionDto>(data, Json)!;
+        return JsonSerializer.Deserialize<T>(data, Json)!;
     }
+
+    private static PracticeQuestionDto DoneQuestion(string stream) => Done<PracticeQuestionDto>(stream);
 
     [Fact]
     public async Task Should_AskListenScoreAndSave_AndIncludeAttemptsInTranscript()
@@ -143,7 +145,10 @@ public sealed class PracticeApiTests : IClassFixture<ApiFactory>
         await audio.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", Ct);
 
         finish.StatusCode.Should().Be(HttpStatusCode.OK);
-        var attempt = (await finish.Content.ReadFromJsonAsync<PracticeAttemptDto>(Json, Ct))!;
+        finish.Content.Headers.ContentType!.MediaType.Should().Be("text/event-stream");
+        var scored = await finish.Content.ReadAsStringAsync(Ct);
+        scored.Should().Contain("event: score\ndata: 7").And.Contain("event: delta\ndata: Mention testing.");
+        var attempt = Done<PracticeAttemptDto>(scored);
         attempt.Score.Should().Be(7);
         attempt.Feedback.Should().Be("Mention testing.");
         attempt.Question.Should().Be("What is dependency injection?");

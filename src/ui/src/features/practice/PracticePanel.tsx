@@ -9,14 +9,17 @@ import type { PracticeAttempt } from '@/types/api';
 /** Sent by the backend once the candidate has been quiet for 6 s after answering (#78). */
 const PRACTICE_SILENCE_EVENT = 'practice.silence';
 
-function ScoreCard({ attempt }: { attempt: PracticeAttempt }) {
+/** The score and feedback, saved or still being written (#78). */
+function ScoreCard({ score, feedback }: { score: number | null; feedback: string }) {
   return (
     <div className="grid gap-1 rounded-md border p-3" aria-label="Score">
-      <p className="text-lg font-semibold">{attempt.score}/10</p>
-      <p className="whitespace-pre-wrap text-sm">{attempt.feedback}</p>
+      <p className="text-lg font-semibold">{score === null ? '…' : `${score}/10`}</p>
+      <p className="whitespace-pre-wrap text-sm">{feedback}</p>
     </div>
   );
 }
+
+const NOTHING_SCORED = { score: null, feedback: '' };
 
 /**
  * Mock interview panel (#26), shown in the overlay window (#74): ask a question, show whether the mic is heard and
@@ -31,6 +34,8 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
   const [draft, setDraft] = useState('');
   const [segments, setSegments] = useState<string[]>([]);
   const [result, setResult] = useState<PracticeAttempt | null>(null);
+  // The score and feedback as the model writes them (#78); replaced by `result` once saved.
+  const [scoring, setScoring] = useState<{ score: number | null; feedback: string }>(NOTHING_SCORED);
   const [busy, setBusy] = useState<'asking' | 'scoring' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const open = useRef(false);
@@ -46,7 +51,12 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
     setBusy('scoring');
     setError(null);
     try {
-      const attempt = await api.practiceFinish(sessionId);
+      setScoring(NOTHING_SCORED);
+      const attempt = await api.practiceFinish(sessionId, {
+        onScore: (score) => setScoring((previous) => ({ ...previous, score })),
+        onToken: (token) => setScoring((previous) => ({ ...previous, feedback: previous.feedback + token })),
+        onRestart: () => setScoring(NOTHING_SCORED),
+      });
       open.current = false;
       setResult(attempt);
     } catch (err) {
@@ -118,7 +128,9 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
         </p>
       )}
       {busy === 'asking' && !draft.trim() && <p className="text-sm text-muted-foreground">Thinking of a question…</p>}
-      {busy === 'scoring' && <p className="text-sm text-muted-foreground">Scoring your answer…</p>}
+      {busy === 'scoring' && scoring.score === null && !scoring.feedback && (
+        <p className="text-sm text-muted-foreground">Scoring your answer…</p>
+      )}
       {(question ?? draft.trim()) && (
         <div className="grid gap-1">
           <CardTitle>Question</CardTitle>
@@ -144,7 +156,11 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
           )}
         </div>
       )}
-      {result && <ScoreCard attempt={result} />}
+      {result ? (
+        <ScoreCard score={result.score} feedback={result.feedback} />
+      ) : (
+        busy === 'scoring' && (scoring.score !== null || scoring.feedback) && <ScoreCard score={scoring.score} feedback={scoring.feedback.trimEnd()} />
+      )}
     </section>
   );
 }

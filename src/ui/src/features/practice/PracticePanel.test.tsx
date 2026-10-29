@@ -16,6 +16,10 @@ const attempt: PracticeAttempt = {
   createdAt: '2026-10-15T09:00:00Z',
 };
 
+function scoreStream(scored: PracticeAttempt) {
+  return sse(['score', String(scored.score)], ['delta', scored.feedback], ['done', JSON.stringify(scored)]);
+}
+
 function questionStream(question: string, answerFromMs = 0) {
   return sse(['delta', question], ['done', JSON.stringify({ question, answerFromMs })]);
 }
@@ -62,7 +66,7 @@ function setup(options: { attempts?: PracticeAttempt[]; finish?: () => Response;
     }
     if (url.endsWith('/practice/finish')) {
       calls.finish += 1;
-      return options.finish ? options.finish() : json(attempt);
+      return options.finish ? options.finish() : scoreStream(attempt);
     }
     if (url.endsWith('/practice/attempts') && init.method !== 'POST') {
       return json(options.attempts ?? []);
@@ -213,6 +217,34 @@ describe('PracticePanel', () => {
     expect(screen.getByRole('button', { name: 'Done answering' })).toBeDisabled();
   });
 
+  it('shows the score as soon as it is written, then the feedback word by word (#78)', async () => {
+    const stream = liveStream();
+    const ctx = setup({ finish: stream.response });
+    await mount(ctx);
+    fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
+    await flush();
+    segment('Candidate', 'Because.');
+    fireEvent.click(screen.getByRole('button', { name: 'Done answering' }));
+    await settle();
+
+    stream.send('score', '7');
+    stream.send('delta', 'Add ');
+    await settle();
+    expect(screen.getByLabelText('Score')).toHaveTextContent('7/10');
+    expect(screen.getByLabelText('Score')).toHaveTextContent('Add');
+
+    stream.send('restart', '');
+    stream.send('delta', 'Mention ');
+    await settle();
+    expect(screen.getByLabelText('Score')).not.toHaveTextContent('Add');
+
+    stream.send('done', JSON.stringify({ ...attempt, feedback: 'Mention numbers.' }));
+    stream.close();
+    await settle();
+    expect(screen.getByLabelText('Score')).toHaveTextContent('Mention numbers.');
+    expect(screen.queryByText('Scoring your answer…')).not.toBeInTheDocument();
+  });
+
   it('never scores on its own timer, however long the gap between transcribed lines', async () => {
     const ctx = setup();
     await mount(ctx);
@@ -230,11 +262,11 @@ describe('PracticePanel', () => {
   it('keeps showing words that arrive while the answer is being scored', async () => {
     let release!: () => void;
     const scored = new Promise<void>((resolve) => (release = resolve));
-    const ctx = setup({ finish: () => json(attempt) });
+    const ctx = setup();
     const finish = ctx.api.practiceFinish.bind(ctx.api);
-    vi.spyOn(ctx.api, 'practiceFinish').mockImplementation(async (id) => {
+    vi.spyOn(ctx.api, 'practiceFinish').mockImplementation(async (...args) => {
       await scored;
-      return finish(id);
+      return finish(...args);
     });
     await mount(ctx);
     fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
@@ -253,7 +285,7 @@ describe('PracticePanel', () => {
 
   it('shows a readable error and allows trying again when scoring fails', async () => {
     let fail = true;
-    const ctx = setup({ finish: () => (fail ? json({ detail: 'No answer heard.' }, 400) : json(attempt)) });
+    const ctx = setup({ finish: () => (fail ? json({ detail: 'No answer heard.' }, 400) : scoreStream(attempt)) });
     await mount(ctx);
     fireEvent.click(screen.getByRole('button', { name: 'Next question' }));
     await flush();

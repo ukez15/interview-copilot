@@ -12,25 +12,6 @@ using Microsoft.Extensions.Options;
 
 namespace InterviewCopilot.Application.Practice;
 
-/// <summary>The next question, plus where its answer starts in the candidate's audio stream (#78).</summary>
-/// <param name="Question">The question to show.</param>
-/// <param name="AnswerFromMs">Candidate speech that started before this position (ms) isn't part of the answer.</param>
-public sealed record PracticeQuestionDto(string Question, long AnswerFromMs = 0);
-
-/// <summary>One piece of a streamed question (#78).</summary>
-/// <param name="Delta">Text the model just wrote; empty on the last part.</param>
-/// <param name="Question">Set only on the last part: the whole question, now open for the answer.</param>
-public sealed record PracticeQuestionPart(string Delta, PracticeQuestionDto? Question = null);
-
-public sealed record PracticeAttemptDto(Guid Id, string Question, string AnswerText, int Score, string Feedback, DateTimeOffset CreatedAt)
-{
-    public static PracticeAttemptDto From(PracticeAttempt attempt)
-    {
-        ArgumentNullException.ThrowIfNull(attempt);
-        return new PracticeAttemptDto(attempt.Id, attempt.Question, attempt.AnswerText, attempt.Score, attempt.Feedback, attempt.CreatedAt);
-    }
-}
-
 /// <summary>Mock interview mode: ask a question, score the spoken answer, keep the attempt (FR-11, #26).</summary>
 public sealed class PracticeService(
     SessionService sessions,
@@ -74,7 +55,12 @@ public sealed class PracticeService(
         return StreamQuestionAsync(sessionId, request, cancellationToken);
     }
 
-    public async Task<PracticeAttemptDto> FinishAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)
+    /// <summary>
+    /// Waits for the last words, takes the answer and checks it, then streams the score as the model writes it
+    /// (#78): the score first, then the feedback, then the saved attempt. An unreadable reply is retried once, with
+    /// a restart part first; if scoring fails or the caller stops reading, the answer is kept for another try.
+    /// </summary>
+    public async Task<IAsyncEnumerable<PracticeScorePart>> FinishAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)
     {
         var session = await LoadLiveMockAsync(ownerId, sessionId, cancellationToken);
         await WaitForLastWordsAsync(sessionId, cancellationToken);
@@ -89,22 +75,8 @@ public sealed class PracticeService(
             throw new DomainException(NoAnswerMessage);
         }
 
-        PracticeFeedback feedback;
-        try
-        {
-            feedback = await ScoreAsync(session, collected, cancellationToken);
-        }
-        catch (Exception ex) when (ex is LlmUnavailableException or OperationCanceledException)
-        {
-            collector.Restore(sessionId, collected);
-            throw;
-        }
-
-        var attempt = PracticeAttempt.Create(
-            sessionId, collected.Question, collected.Answer, feedback.Score, feedback.Feedback, clock.GetUtcNow());
-        attempts.Add(attempt);
-        await unitOfWork.SaveChangesAsync(cancellationToken);
-        return PracticeAttemptDto.From(attempt);
+        var request = await RequestAsync(session, PracticePromptBuilder.ScoreAnswer(session, collected.Question, collected.Answer), cancellationToken);
+        return StreamScoreAsync(sessionId, collected, request, cancellationToken);
     }
 
     public async Task<IReadOnlyList<PracticeAttemptDto>> ListAsync(Guid ownerId, Guid sessionId, CancellationToken cancellationToken)
@@ -155,19 +127,53 @@ public sealed class PracticeService(
         return session;
     }
 
-    private async Task<PracticeFeedback> ScoreAsync(Session session, CollectedAnswer collected, CancellationToken cancellationToken)
+    private async IAsyncEnumerable<PracticeScorePart> StreamScoreAsync(
+        Guid sessionId,
+        CollectedAnswer collected,
+        LlmRequest request,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        var messages = PracticePromptBuilder.ScoreAnswer(session, collected.Question, collected.Answer);
-        for (var attempt = 0; attempt <= ScoreRetries; attempt++)
+        var saved = false;
+        try
         {
-            var parsed = PracticePromptBuilder.ParseFeedback(await CompleteAsync(session, messages, cancellationToken));
-            if (parsed is not null)
+            for (var attempt = 0; attempt <= ScoreRetries; attempt++)
             {
-                return parsed;
+                if (attempt > 0)
+                {
+                    yield return new PracticeScorePart(string.Empty, Restart: true);
+                }
+
+                var reader = new ScoreReplyReader();
+                await foreach (var token in llmProviders.Resolve(PracticeProvider).StreamAsync(request, cancellationToken))
+                {
+                    var read = reader.Add(token);
+                    if (read.Score is not null || read.Feedback.Length > 0)
+                    {
+                        yield return new PracticeScorePart(read.Feedback, read.Score);
+                    }
+                }
+
+                if (PracticePromptBuilder.ParseFeedback(reader.Reply) is { } feedback)
+                {
+                    var created = PracticeAttempt.Create(
+                        sessionId, collected.Question, collected.Answer, feedback.Score, feedback.Feedback, clock.GetUtcNow());
+                    attempts.Add(created);
+                    await unitOfWork.SaveChangesAsync(cancellationToken);
+                    saved = true;
+                    yield return new PracticeScorePart(string.Empty, Attempt: PracticeAttemptDto.From(created));
+                    yield break;
+                }
+            }
+
+            throw new LlmUnavailableException(UnreadableFeedbackMessage);
+        }
+        finally
+        {
+            if (!saved)
+            {
+                collector.Restore(sessionId, collected); // a failed or abandoned score can be tried again
             }
         }
-
-        throw new LlmUnavailableException(UnreadableFeedbackMessage);
     }
 
     private async IAsyncEnumerable<PracticeQuestionPart> StreamQuestionAsync(
@@ -192,18 +198,6 @@ public sealed class PracticeService(
         var answerFromMs = audioClock.PositionMs(sessionId, Speaker.Candidate);
         collector.Open(sessionId, question, answerFromMs);
         yield return new PracticeQuestionPart(string.Empty, new PracticeQuestionDto(question, answerFromMs));
-    }
-
-    private async Task<string> CompleteAsync(Session session, IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken)
-    {
-        var reply = new StringBuilder();
-        var request = await RequestAsync(session, messages, cancellationToken);
-        await foreach (var token in llmProviders.Resolve(PracticeProvider).StreamAsync(request, cancellationToken))
-        {
-            reply.Append(token);
-        }
-
-        return reply.ToString();
     }
 
     private async Task<LlmRequest> RequestAsync(Session session, IReadOnlyList<LlmMessage> messages, CancellationToken cancellationToken)
