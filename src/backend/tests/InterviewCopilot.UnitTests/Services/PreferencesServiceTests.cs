@@ -23,6 +23,7 @@ public class PreferencesServiceTests
     private static readonly Guid User = Guid.NewGuid();
     private readonly InMemoryPreferences _repo = new();
     private readonly InMemoryStore _store = new();
+    private readonly FakeSpeechModels _speechModels = new();
     private readonly PreferencesService _service;
 
     public PreferencesServiceTests() =>
@@ -32,9 +33,33 @@ public class PreferencesServiceTests
             new FixedClock(),
             Options.Create(new LlmOptions { Model = "llama3.2:3b" }),
             Options.Create(new TranscriptionOptions()),
-            new ProviderCatalog(Options.Create(new TranscriptionOptions()), Options.Create(new LlmOptions())));
+            new ProviderCatalog(Options.Create(new TranscriptionOptions()), Options.Create(new LlmOptions())),
+            _speechModels);
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
+
+    [Fact]
+    public async Task Should_SaveADownloadedSpeechModel_AndNameTheDefault()
+    {
+        _speechModels.States[FakeSpeechModels.Accurate] = WhisperModelState.Ready;
+
+        var result = await _service.SetSpeechModelAsync(User, FakeSpeechModels.Accurate, Ct);
+
+        result.SpeechModel.Should().Be(FakeSpeechModels.Accurate);
+        result.DefaultSpeechModel.Should().Be(FakeSpeechModels.Standard);
+        (await _service.SetSpeechModelAsync(User, null, Ct)).SpeechModel.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task Should_RefuseASpeechModel_ThatIsNotOffered_OrNotDownloaded()
+    {
+        var unknown = () => _service.SetSpeechModelAsync(User, "ggml-made-up.bin", Ct);
+        var missing = () => _service.SetSpeechModelAsync(User, FakeSpeechModels.Accurate, Ct);
+
+        (await unknown.Should().ThrowAsync<DomainException>()).WithMessage(PreferencesService.UnknownSpeechModelMessage);
+        (await missing.Should().ThrowAsync<DomainException>()).WithMessage(PreferencesService.SpeechModelNotDownloadedMessage);
+        _repo.Items.Should().BeEmpty();
+    }
 
     [Fact]
     public async Task Should_ReturnNoModel_When_NothingSavedYet()

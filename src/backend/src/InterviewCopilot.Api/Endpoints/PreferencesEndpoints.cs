@@ -12,6 +12,9 @@ public sealed record UpdateLlmPreferenceRequest(string? Provider, string? Model)
 /// <summary>PUT /api/preferences/speech-to-text (#20).</summary>
 public sealed record UpdateSpeechToTextPreferenceRequest(string? Provider);
 
+/// <summary>PUT /api/preferences/speech-model (#85): a model file name, or null for the default.</summary>
+public sealed record UpdateSpeechModelPreferenceRequest(string? Model);
+
 internal static class PreferencesEndpoints
 {
     public static void MapPreferencesEndpoints(this IEndpointRouteBuilder app)
@@ -33,5 +36,12 @@ internal static class PreferencesEndpoints
                 PreferencesService preferences,
                 CancellationToken ct) =>
             preferences.SetSpeechToTextProviderAsync(user.UserId(), request.Provider, ct));
+
+        group.MapPut("/speech-model", (
+                UpdateSpeechModelPreferenceRequest request,
+                ClaimsPrincipal user,
+                PreferencesService preferences,
+                CancellationToken ct) =>
+            preferences.SetSpeechModelAsync(user.UserId(), request.Model, ct));
     }
 }

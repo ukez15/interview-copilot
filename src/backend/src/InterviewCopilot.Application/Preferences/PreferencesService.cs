@@ -16,23 +16,32 @@ namespace InterviewCopilot.Application.Preferences;
 /// <param name="DefaultLlmProvider">The provider from configuration (<c>Llm:Provider</c>).</param>
 /// <param name="SpeechToTextProvider">The chosen speech-to-text provider (#20), or null for the default.</param>
 /// <param name="DefaultSpeechToTextProvider">The provider from configuration (<c>Transcription:Provider</c>).</param>
+/// <param name="SpeechModel">The chosen local speech model (#85), or null for the default.</param>
+/// <param name="DefaultSpeechModel">The model from configuration (<c>Transcription:Providers:Whisper:Model</c>).</param>
 public sealed record PreferencesDto(
     string? LlmModel,
     string DefaultLlmModel,
     string? LlmProvider,
     string DefaultLlmProvider,
     string? SpeechToTextProvider,
-    string DefaultSpeechToTextProvider);
+    string DefaultSpeechToTextProvider,
+    string? SpeechModel,
+    string DefaultSpeechModel);
 
-/// <summary>Reads and writes per-account preferences (#31, #30, #20).</summary>
+/// <summary>Reads and writes per-account preferences (#31, #30, #20, #85).</summary>
 public sealed class PreferencesService(
     IUserPreferencesRepository preferences,
     IUnitOfWork unitOfWork,
     TimeProvider clock,
     IOptions<LlmOptions> llmOptions,
     IOptions<TranscriptionOptions> transcriptionOptions,
-    ProviderCatalog catalog)
+    ProviderCatalog catalog,
+    IWhisperModelStatus? speechModels = null)
 {
+    public const string UnknownSpeechModelMessage = "That speech model isn't available.";
+
+    public const string SpeechModelNotDownloadedMessage = "Download that speech model first.";
+
     public async Task<PreferencesDto> GetAsync(Guid userId, CancellationToken cancellationToken) =>
         ToDto(await preferences.GetAsync(userId, cancellationToken));
 
@@ -63,6 +72,21 @@ public sealed class PreferencesService(
         return UpdateAsync(userId, (p, now) => p.SetSpeechToTextProvider(provider, now), cancellationToken);
     }
 
+    /// <summary>Chooses the local speech model (#85). It must be offered and already downloaded; null means the default.</summary>
+    public Task<PreferencesDto> SetSpeechModelAsync(Guid userId, string? model, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(model))
+        {
+            var status = speechModels?.GetStatus(model.Trim()) ?? throw new DomainException(UnknownSpeechModelMessage);
+            if (status.State != WhisperModelState.Ready)
+            {
+                throw new DomainException(SpeechModelNotDownloadedMessage);
+            }
+        }
+
+        return UpdateAsync(userId, (p, now) => p.SetSpeechModel(model, now), cancellationToken);
+    }
+
     private async Task<PreferencesDto> UpdateAsync(
         Guid userId,
         Action<UserPreferences, DateTimeOffset> change,
@@ -88,5 +112,7 @@ public sealed class PreferencesService(
         p?.LlmProvider,
         llmOptions.Value.Provider,
         p?.SpeechToTextProvider,
-        transcriptionOptions.Value.Provider);
+        transcriptionOptions.Value.Provider,
+        p?.SpeechModel,
+        transcriptionOptions.Value.Providers.Whisper.Model);
 }

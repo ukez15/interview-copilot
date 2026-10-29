@@ -99,6 +99,12 @@ export interface TranscriptAnswer {
 }
 
 /** A scored mock-interview answer (#26). */
+/** The next mock-interview question; speech that started before `answerFromMs` of mic stream isn't the answer (#78). */
+export interface PracticeQuestion {
+  question: string;
+  answerFromMs: number;
+}
+
 export interface PracticeAttempt {
   id: string;
   question: string;
@@ -140,10 +146,13 @@ export type WhisperModelState = 'missing' | 'downloading' | 'ready' | 'failed';
 
 export interface WhisperModel {
   state: WhisperModelState;
+  /** The model's file name, which also identifies it (#85). */
   model: string;
   bytesDownloaded: number;
   totalBytes: number | null;
   message: string | null;
+  /** About how big the download is, shown before it starts; null when unknown. */
+  approximateBytes?: number | null;
 }
 
 export interface OllamaModel {
@@ -169,6 +178,9 @@ export interface Preferences {
   /** Chosen speech-to-text provider (#20); null means the configured default. */
   speechToTextProvider: string | null;
   defaultSpeechToTextProvider: string;
+  /** Chosen local speech model file (#85); null means the configured default. */
+  speechModel?: string | null;
+  defaultSpeechModel?: string;
 }
 
 export interface AnswerHeader {

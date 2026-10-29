@@ -151,3 +151,21 @@ public sealed class AudioIngestService(SessionService sessions, IEnumerable<IAud
         }
     }
 }
+
+/// <summary>Where a speaker's stream stood after the worker handled one frame (#78).</summary>
+/// <param name="SessionId">The session.</param>
+/// <param name="Speaker">Whose stream.</param>
+/// <param name="PositionMs">The end of the handled frame, in stream milliseconds.</param>
+/// <param name="LastVoiceEndMs">Where the speaker's last voiced frame ended; 0 before any voice.</param>
+/// <param name="SpeechPending">True while speech is buffered and not yet transcribed.</param>
+public sealed record AudioProgress(Guid SessionId, Speaker Speaker, long PositionMs, long LastVoiceEndMs, bool SpeechPending);
+
+/// <summary>Told after each frame is handled and any segment it finished is delivered, e.g. to notice silence (#78).</summary>
+public interface IAudioProgressListener
+{
+    /// <summary>Handles one frame's progress. It runs on the transcription loop, so it must be quick.</summary>
+    /// <param name="progress">Where the stream stands.</param>
+    /// <param name="cancellationToken">Stops the work when the host shuts down.</param>
+    /// <returns>A task that completes when the listener is done.</returns>
+    ValueTask OnFrameHandledAsync(AudioProgress progress, CancellationToken cancellationToken);
+}

@@ -44,6 +44,17 @@ public class VoiceActivityBufferTests
     private static VoiceActivityBuffer NewBuffer() => new(new VadOptions());
 
     [Fact]
+    public void Should_RememberWhereTheLastVoiceEnded()
+    {
+        var buffer = NewBuffer();
+        buffer.LastVoiceEndMs.Should().Be(0);
+
+        Feed(buffer, (Silent(), 2), (Loud(), 3), (Silent(), 10));
+
+        buffer.LastVoiceEndMs.Should().Be(500); // the third loud frame, at 400 ms, ends at 500 ms
+    }
+
+    [Fact]
     public void Should_EmitNothing_When_TenMinutesOfSilence()
     {
         var segments = Feed(NewBuffer(), (Silent(), 6_000));
@@ -312,5 +323,29 @@ public class VoiceActivityBufferTests
         }
 
         maxBytes.Should().Be(150 * FrameBytes);
+    }
+
+    [Fact]
+    public void Should_TimeSegmentsFromTheGivenStreamIndex_When_EarlierFramesWereSkipped()
+    {
+        var buffer = new VoiceActivityBuffer(new VadOptions());
+        SpeechSegment? segment = null;
+        long index = 10;
+        for (var i = 0; i < 4; i++)
+        {
+            buffer.Push(Loud(), index++).Should().BeNull();
+        }
+
+        buffer.HasSpeech.Should().BeTrue();
+        buffer.NextFrameIndex.Should().Be(14);
+        for (var i = 0; i < 6 && segment is null; i++)
+        {
+            segment = buffer.Push(Silent(), index++);
+        }
+
+        segment.Should().NotBeNull();
+        segment.StartMs.Should().Be(1_000);
+        segment.EndMs.Should().Be(1_400);
+        buffer.HasSpeech.Should().BeFalse();
     }
 }

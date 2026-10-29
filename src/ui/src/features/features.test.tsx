@@ -230,11 +230,14 @@ describe('SessionPage', () => {
     expect(await screen.findByText('Export failed here')).toBeInTheDocument();
   });
 
-  it('shows the practice panel instead of the live assistant in mock interviews', async () => {
-    const { api } = fakeApi((url) => (url.endsWith('/practice/attempts') ? json([]) : json({ ...sampleSession, mode: 'MockInterview' })));
+  it('sends mock interviews to the overlay and keeps only the history in the main window', async () => {
+    const { api } = fakeApi((url) =>
+      url.endsWith('/practice/attempts') ? json([]) : json({ ...sampleSession, mode: 'MockInterview', status: 'Live' }),
+    );
     renderWithApp(<SessionPage />, { api, ...route });
 
-    expect(await screen.findByRole('button', { name: 'Next question' })).toBeInTheDocument();
+    expect(await screen.findByText('Practising in the overlay.')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Next question' })).not.toBeInTheDocument();
     expect(screen.queryByText('Live assistant')).not.toBeInTheDocument();
   });
 
@@ -392,8 +395,8 @@ describe('Sign-in persistence', () => {
       if (url.endsWith('/api/providers/ollama/models')) return json([]);
       if (url.endsWith('/api/pairing/browsers')) return json([]);
       if (url.endsWith('/api/preferences')) return json({ llmModel: null, defaultLlmModel: 'llama3.2:3b' });
-      if (url.endsWith('/api/providers/whisper/model')) {
-        return json({ state: 'ready', model: 'ggml-small.en.bin', bytesDownloaded: 0, totalBytes: null, message: null });
+      if (url.endsWith('/api/providers/whisper/models')) {
+        return json([{ state: 'ready', model: 'ggml-small.en.bin', bytesDownloaded: 0, totalBytes: null, message: null, approximateBytes: null }]);
       }
       return json({ speechToText: [], llm: [] });
     });

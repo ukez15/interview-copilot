@@ -7,13 +7,13 @@ namespace InterviewCopilot.Infrastructure.Transcription;
 internal interface IWhisperModelSource
 {
     /// <summary>Opens the model stream; the caller disposes it.</summary>
-    Task<Stream> OpenAsync(GgmlType type, CancellationToken cancellationToken);
+    Task<Stream> OpenAsync(GgmlType type, QuantizationType quantization, CancellationToken cancellationToken);
 }
 
 /// <summary>Downloads the model from the public Whisper.net / Hugging Face location.</summary>
 [ExcludeFromCodeCoverage(Justification = "Real network download; covered by the manual release checklist.")]
 internal sealed class GgmlWhisperModelSource : IWhisperModelSource
 {
-    public Task<Stream> OpenAsync(GgmlType type, CancellationToken cancellationToken) =>
-        WhisperGgmlDownloader.Default.GetGgmlModelAsync(type, cancellationToken: cancellationToken);
+    public Task<Stream> OpenAsync(GgmlType type, QuantizationType quantization, CancellationToken cancellationToken) =>
+        WhisperGgmlDownloader.Default.GetGgmlModelAsync(type, quantization, cancellationToken);
 }

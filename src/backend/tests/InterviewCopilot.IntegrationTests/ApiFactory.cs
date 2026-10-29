@@ -100,23 +100,47 @@ public sealed class ScriptedLlm : ILlmProvider
     }
 }
 
-/// <summary>Stands in for the Whisper model manager so no test downloads anything.</summary>
+/// <summary>Stands in for the Whisper model manager so no test downloads anything: the two offered models (#85).</summary>
 public sealed class FakeWhisperModel : IWhisperModelStatus
 {
+    public const string Standard = "ggml-small.en.bin";
+    public const string Accurate = "ggml-large-v3-turbo-q5_0.bin";
+
+    /// <summary>The standard (default) model's state.</summary>
     public WhisperModelState State { get; set; } = WhisperModelState.Missing;
 
-    public WhisperModelStatus GetStatus() => new(State, "ggml-small.en.bin", 5, 10, null);
+    public WhisperModelState AccurateState { get; set; } = WhisperModelState.Missing;
 
-    public WhisperDownloadStart StartDownload()
+    public IReadOnlyList<WhisperModelStatus> GetModels() => [GetStatus(Standard)!, GetStatus(Accurate)!];
+
+    public WhisperModelStatus? GetStatus(string model) => model switch
     {
-        switch (State)
+        Standard => new(State, Standard, 5, 10, null, 488_000_000),
+        Accurate => new(AccurateState, Accurate, 0, null, null, 574_000_000),
+        _ => null,
+    };
+
+    public WhisperDownloadStart? StartDownload(string model)
+    {
+        var state = GetStatus(model)?.State;
+        switch (state)
         {
+            case null:
+                return null;
             case WhisperModelState.Downloading:
                 return WhisperDownloadStart.AlreadyDownloading;
             case WhisperModelState.Ready:
                 return WhisperDownloadStart.AlreadyReady;
             default:
-                State = WhisperModelState.Downloading;
+                if (model == Standard)
+                {
+                    State = WhisperModelState.Downloading;
+                }
+                else
+                {
+                    AccurateState = WhisperModelState.Downloading;
+                }
+
                 return WhisperDownloadStart.Started;
         }
     }

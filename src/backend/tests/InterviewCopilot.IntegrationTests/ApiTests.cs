@@ -239,8 +239,9 @@ public sealed class ApiTests : IClassFixture<ApiFactory>
     {
         var anonymous = _factory.CreateClient();
 
-        (await anonymous.GetAsync("/api/providers/whisper/model", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
-        (await anonymous.PostAsync("/api/providers/whisper/model/download", null, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await anonymous.GetAsync("/api/providers/whisper/models", Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await anonymous.PostAsync(DownloadUrl(FakeWhisperModel.Standard), null, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await anonymous.PutAsJsonAsync("/api/preferences/speech-model", new { Model = (string?)null }, Ct)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
     }
 
     [Fact]
@@ -249,9 +250,36 @@ public sealed class ApiTests : IClassFixture<ApiFactory>
         var client = await _factory.CreateSignedInClientAsync("whisper-state");
         _factory.WhisperModel.State = WhisperModelState.Missing;
 
-        var body = await client.GetStringAsync("/api/providers/whisper/model", Ct);
+        var body = await client.GetStringAsync("/api/providers/whisper/models", Ct);
 
-        body.Should().Contain("\"state\":\"missing\"").And.Contain("ggml-small.en.bin");
+        body.Should().StartWith("[").And.Contain("\"state\":\"missing\"").And.Contain(FakeWhisperModel.Standard)
+            .And.Contain(FakeWhisperModel.Accurate).And.Contain("\"approximateBytes\":574000000");
+    }
+
+    private static string DownloadUrl(string model) => $"/api/providers/whisper/models/{model}/download";
+
+    [Fact]
+    public async Task Should_Return404_ForASpeechModelThatIsNotOffered()
+    {
+        var client = await _factory.CreateSignedInClientAsync("whisper-unknown");
+
+        (await client.PostAsync(DownloadUrl("ggml-made-up.bin"), null, Ct)).StatusCode.Should().Be(HttpStatusCode.NotFound);
+    }
+
+    [Fact]
+    public async Task Should_ChooseADownloadedSpeechModel_AndRefuseOneThatIsNot()
+    {
+        var client = await _factory.CreateSignedInClientAsync("whisper-choose");
+        _factory.WhisperModel.AccurateState = WhisperModelState.Missing;
+
+        var refused = await client.PutAsJsonAsync("/api/preferences/speech-model", new { Model = FakeWhisperModel.Accurate }, Ct);
+        _factory.WhisperModel.AccurateState = WhisperModelState.Ready;
+        var chosen = await client.PutAsJsonAsync("/api/preferences/speech-model", new { Model = FakeWhisperModel.Accurate }, Ct);
+
+        refused.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        chosen.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await chosen.Content.ReadAsStringAsync(Ct)).Should().Contain($"\"speechModel\":\"{FakeWhisperModel.Accurate}\"");
+        (await client.GetStringAsync("/api/preferences", Ct)).Should().Contain($"\"defaultSpeechModel\":\"{FakeWhisperModel.Standard}\"");
     }
 
     [Fact]
@@ -260,10 +288,10 @@ public sealed class ApiTests : IClassFixture<ApiFactory>
         var client = await _factory.CreateSignedInClientAsync("whisper-download");
         _factory.WhisperModel.State = WhisperModelState.Missing;
 
-        var started = await client.PostAsync("/api/providers/whisper/model/download", null, Ct);
-        var again = await client.PostAsync("/api/providers/whisper/model/download", null, Ct);
+        var started = await client.PostAsync(DownloadUrl(FakeWhisperModel.Standard), null, Ct);
+        var again = await client.PostAsync(DownloadUrl(FakeWhisperModel.Standard), null, Ct);
         _factory.WhisperModel.State = WhisperModelState.Ready;
-        var ready = await client.PostAsync("/api/providers/whisper/model/download", null, Ct);
+        var ready = await client.PostAsync(DownloadUrl(FakeWhisperModel.Standard), null, Ct);
 
         started.StatusCode.Should().Be(HttpStatusCode.Accepted);
         (await started.Content.ReadAsStringAsync(Ct)).Should().Contain("\"state\":\"downloading\"");

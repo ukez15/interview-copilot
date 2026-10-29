@@ -1,8 +1,8 @@
 import { Button } from '@/components/ui/button';
 import { DownloadProgress } from '@/features/settings/SpeechModelCard';
-import { useWhisperModel } from '@/features/settings/useWhisperModel';
+import { approximateSize, useWhisperModel } from '@/features/settings/useWhisperModel';
 
-/** Shown on the sessions page while the speech model isn't ready; the download starts only on click. */
+/** Shown on the sessions page while the speech model in use isn't ready (#85); the download starts only on click. */
 export function SpeechModelBanner() {
   const { model, download } = useWhisperModel();
 
@@ -22,7 +22,7 @@ export function SpeechModelBanner() {
           <span>
             {model.state === 'failed'
               ? (model.message ?? 'The speech model download failed.')
-              : 'Download the speech model (about 466 MB) so InterviewCopilot can transcribe calls.'}
+              : `Download the speech model (${approximateSize(model)}) so InterviewCopilot can transcribe calls.`}
           </span>
           <Button size="sm" className="w-fit" onClick={() => void download()}>
             {model.state === 'failed' ? 'Retry' : 'Download'}
