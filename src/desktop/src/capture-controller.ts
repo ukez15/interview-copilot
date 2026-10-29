@@ -34,6 +34,11 @@ export class CaptureController {
     return this.current;
   }
 
+  /** The session being captured, or null: the one to end when the app quits (#84). */
+  get liveSessionId(): string | null {
+    return this.config?.sessionId ?? null;
+  }
+
   async start(sessionId: string): Promise<CaptureStatus> {
     if (typeof sessionId !== 'string' || !/^[0-9a-f-]{36}$/i.test(sessionId)) {
       throw new Error('Invalid session id.');
