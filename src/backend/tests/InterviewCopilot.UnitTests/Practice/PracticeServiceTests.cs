@@ -259,11 +259,12 @@ public class PracticeServiceTests
         await AskAsync(_session.Id);
         await AnswerAsync(_session.Id, "words");
 
-        await foreach (var part in await _service.FinishAsync(Owner, _session.Id, Ct))
+        var parts = (await _service.FinishAsync(Owner, _session.Id, Ct)).GetAsyncEnumerator(Ct);
+        await using (parts)
         {
-            part.Score.Should().Be(8);
-            break; // the client went away
-        }
+            (await parts.MoveNextAsync()).Should().BeTrue();
+            parts.Current.Score.Should().Be(8);
+        } // the client went away after the score
 
         _store.Attempts.Should().BeEmpty();
         _collector.IsOpen(_session.Id).Should().BeTrue("the candidate can score it again");

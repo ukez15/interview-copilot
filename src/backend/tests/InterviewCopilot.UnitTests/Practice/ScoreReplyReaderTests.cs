@@ -21,12 +21,9 @@ public class ScoreReplyReaderTests
     public void Should_StreamTheFeedback_PieceByPiece_WithoutTheLabel()
     {
         var reader = new ScoreReplyReader();
-        var pieces = new List<string>();
+        string[] tokens = ["SCORE: 7\n", "feedback:", "  Clear ", "structure", ".\nAdd numbers."];
 
-        foreach (var token in new[] { "SCORE: 7\n", "feedback:", "  Clear ", "structure", ".\nAdd numbers." })
-        {
-            pieces.Add(reader.Add(token).Feedback);
-        }
+        var pieces = tokens.Select(token => reader.Add(token).Feedback).ToList();
 
         string.Concat(pieces).Should().Be("Clear structure.\nAdd numbers.");
         reader.Reply.Should().Be("SCORE: 7\nfeedback:  Clear structure.\nAdd numbers.");
