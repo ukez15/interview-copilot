@@ -144,8 +144,8 @@ public class InfrastructureTests
     [Fact]
     public void Should_KnowDefaultWhisperModel()
     {
-        WhisperModelCatalog.TryGetType("ggml-small.en.bin", out _).Should().BeTrue();
-        WhisperModelCatalog.TryGetType("unknown.bin", out _).Should().BeFalse();
+        WhisperModelCatalog.TryGet("ggml-small.en.bin", out _).Should().BeTrue();
+        WhisperModelCatalog.TryGet("unknown.bin", out _).Should().BeFalse();
     }
 
     private static async Task<int> DrainAsync(OllamaLlmProvider provider)

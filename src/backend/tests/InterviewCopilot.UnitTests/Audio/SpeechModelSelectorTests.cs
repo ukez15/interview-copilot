@@ -3,7 +3,6 @@ using InterviewCopilot.Application.Audio;
 using InterviewCopilot.Application.Common.Interfaces;
 using InterviewCopilot.Domain.Entities;
 using InterviewCopilot.Domain.Enums;
-using InterviewCopilot.UnitTests.Services;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace InterviewCopilot.UnitTests.Audio;
@@ -34,12 +33,13 @@ public sealed class SpeechModelSelectorTests : IDisposable
 
     private void Choose(string? model)
     {
-        var prefs = _preferences.Items.Find(p => p.UserId == _owner) ?? UserPreferences.Create(_owner, FixedClock.Default);
-        prefs.SetSpeechModel(model, FixedClock.Default);
-        if (!_preferences.Items.Contains(prefs))
+        if (!_preferences.Items.TryGetValue(_owner, out var prefs))
         {
-            _preferences.Add(prefs);
+            prefs = UserPreferences.Create(_owner, FixedClock.Default);
+            _preferences.Items[_owner] = prefs;
         }
+
+        prefs.SetSpeechModel(model, FixedClock.Default);
     }
 
     [Fact]
