@@ -4,7 +4,8 @@ import { createWebPlatform } from '@/platform';
 import { FakeWebSocket } from '@/test/fakeWebSocket';
 import { fakeApi, json, renderWithApp, sampleSession, sse } from '@/test/helpers';
 import type { PracticeAttempt } from '@/types/api';
-import { MIC_WAITS_HINT, PracticePanel, PracticeSummaryCard } from './PracticePanel';
+import { MIC_PAUSED } from '@/features/audio/MicStatus';
+import { PracticePanel, PracticeSummaryCard } from './PracticePanel';
 
 const attempt: PracticeAttempt = {
   id: 'a1',
@@ -73,6 +74,7 @@ function setup(options: { attempts?: PracticeAttempt[]; finish?: () => Response;
 
 async function mount(ctx: ReturnType<typeof setup>) {
   const platform = createWebPlatform();
+  vi.spyOn(platform, 'getCaptureStatus').mockResolvedValue({ state: 'live', interviewer: false, mic: true, message: null });
   await platform.setAuthTokens({ accessToken: 'tok', refreshToken: 'r' });
   renderWithApp(<PracticePanel sessionId="s1" live={ctx.live} />, { api: ctx.api, platform });
   await flush();
@@ -112,7 +114,7 @@ describe('PracticePanel', () => {
     await settle();
     expect(screen.getByLabelText('Question')).toHaveTextContent('Why');
     expect(screen.queryByText('Thinking of a question…')).not.toBeInTheDocument();
-    expect(screen.getByText(MIC_WAITS_HINT)).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(MIC_PAUSED);
     expect(screen.getByRole('button', { name: 'Done answering' })).toBeDisabled();
 
     stream.send('delta', 'us?');
@@ -121,7 +123,7 @@ describe('PracticePanel', () => {
     await settle();
     expect(screen.getByLabelText('Question')).toHaveTextContent('Why us?');
     expect(screen.getByText('Listening…')).toBeInTheDocument();
-    expect(screen.queryByText(MIC_WAITS_HINT)).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('Mic ✓ Listening');
     expect(screen.getByRole('button', { name: 'Done answering' })).toBeEnabled();
   });
 
@@ -315,7 +317,7 @@ describe('PracticePanel', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
-  it('shows whether the mic is heard while live', async () => {
+  it('shows the mic is heard, and paused until the first question is complete', async () => {
     const ctx = setup();
     const platform = createWebPlatform();
     vi.spyOn(platform, 'getCaptureStatus').mockResolvedValue({ state: 'live', interviewer: false, mic: true, message: null });
@@ -323,7 +325,7 @@ describe('PracticePanel', () => {
     renderWithApp(<PracticePanel sessionId="s1" live />, { api: ctx.api, platform });
     await flush();
 
-    expect(screen.getByRole('status')).toHaveTextContent('Mic ✓ Listening');
+    expect(screen.getByRole('status')).toHaveTextContent(MIC_PAUSED);
   });
 });
 

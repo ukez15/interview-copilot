@@ -6,9 +6,6 @@ import { useSessionEvents, type SessionEvent } from '@/features/copilot/useSessi
 import { useApp } from '@/lib/app-context';
 import type { PracticeAttempt } from '@/types/api';
 
-/** Shown while the question is written: the mic is muted until it's complete (#78). */
-export const MIC_WAITS_HINT = 'The mic listens once the question is complete.';
-
 /** Sent by the backend once the candidate has been quiet for 6 s after answering (#78). */
 const PRACTICE_SILENCE_EVENT = 'practice.silence';
 
@@ -106,7 +103,7 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
   return (
     <section className="grid gap-3 break-words">
       {!live && <CardDescription>Start the session to practice.</CardDescription>}
-      <MicStatus active={live} />
+      <MicStatus active={live} paused={question === null} />
       <div className="flex flex-wrap gap-2">
         <Button onClick={() => void next()} disabled={!live || busy !== null}>
           Next question
@@ -126,7 +123,6 @@ export function PracticePanel({ sessionId, live }: { sessionId: string; live: bo
         <div className="grid gap-1">
           <CardTitle>Question</CardTitle>
           <p aria-label="Question">{question ?? draft.trim()}</p>
-          {!question && <p className="text-sm text-muted-foreground">{MIC_WAITS_HINT}</p>}
         </div>
       )}
       {question && (

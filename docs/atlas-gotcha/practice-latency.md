@@ -201,3 +201,22 @@ Proposed changes:
   listens once the question is complete."
 
 Out of scope: the speech model's accuracy (model size, mic level). That's a separate issue if needed.
+
+---
+
+## Changes after the owner's third test (2026-10-29, test installer 209398e)
+
+Status: **decided by the owner (2026-10-29).**
+
+What the owner saw: much better. Questions take about 20 s (down from 90), the answer shows, and "Done
+answering" works. But the mic line said "Listening" while the question was being written, and scoring takes
+60–120 s. Transcription is weaker than paid models.
+
+Decisions:
+- **Mic line:** "Mic ⏸ Paused until the question is complete" while no question is open; it replaces the
+  separate hint line. A mic problem still shows as "Mic ✗ …".
+- **Scoring:** stream the feedback word by word (the owner chose this alone; the document budget for
+  scoring stays 6,000). Scoring takes as long, but reading starts within seconds.
+- **Speech quality:** a larger Whisper model as a Settings option goes to its own issue and brief (#85).
+- **Also found:** a session left Live when the app closed couldn't be deleted. The desktop app now ends it
+  on quit (#84).

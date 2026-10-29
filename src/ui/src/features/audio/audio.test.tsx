@@ -5,7 +5,7 @@ import { createWebPlatform, type CaptureStatus } from '@/platform';
 import { fakeApi, json, renderWithApp, sampleSession } from '@/test/helpers';
 import { SessionPage } from '@/features/sessions/SessionPage';
 import { CAPTURE_POLL_MS, CaptureIndicator } from './CaptureIndicator';
-import { MicStatus } from './MicStatus';
+import { MIC_PAUSED, MicStatus } from './MicStatus';
 import { listMicrophones, MicrophonePicker } from './MicrophonePicker';
 import { chooseOption } from '@/test/select';
 
@@ -45,13 +45,27 @@ describe('CaptureIndicator', () => {
 });
 
 describe('MicStatus', () => {
-  function mount(status: CaptureStatus, active = true) {
+  function mount(status: CaptureStatus, active = true, paused = false) {
     const platform = createWebPlatform();
     const getStatus = vi.spyOn(platform, 'getCaptureStatus').mockResolvedValue(status);
     const { api } = fakeApi(() => json({}));
-    const view = renderWithApp(<MicStatus active={active} />, { api, platform });
+    const view = renderWithApp(<MicStatus active={active} paused={paused} />, { api, platform });
     return { ...view, getStatus };
   }
+
+  it('says the mic is paused while practice is not taking an answer (#78)', async () => {
+    mount({ state: 'live', interviewer: false, mic: true, message: null }, true, true);
+
+    const status = await screen.findByRole('status');
+    expect(status).toHaveTextContent(MIC_PAUSED);
+    expect(status).not.toHaveTextContent('Listening');
+  });
+
+  it('still reports a mic problem while paused', async () => {
+    mount({ state: 'live', interviewer: false, mic: false, message: 'Microphone unavailable.' }, true, true);
+
+    expect(await screen.findByRole('status')).toHaveTextContent('Mic ✗ Microphone unavailable.');
+  });
 
   it('shows the mic is live while capture is listening to it', async () => {
     mount({ state: 'live', interviewer: false, mic: true, message: null });
