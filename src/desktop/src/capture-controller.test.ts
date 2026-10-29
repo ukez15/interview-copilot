@@ -82,6 +82,17 @@ describe('CaptureController', () => {
     expect(second.controller.configFor(10).micOnly).toBe(false);
   });
 
+  it('knows which session it is capturing, so the app can end it on quit (#84)', async () => {
+    const { controller } = setup();
+    expect(controller.liveSessionId).toBeNull();
+
+    await controller.start(SESSION);
+    expect(controller.liveSessionId).toBe(SESSION);
+
+    controller.stop();
+    expect(controller.liveSessionId).toBeNull();
+  });
+
   it('accepts status only from the capture window and sanitizes it', async () => {
     const { controller } = setup();
     await controller.start(SESSION);

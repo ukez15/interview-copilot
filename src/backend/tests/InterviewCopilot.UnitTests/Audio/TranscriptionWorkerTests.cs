@@ -24,22 +24,28 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
     private readonly TranscriptionWorker _worker;
     private readonly Guid _sessionId = Guid.NewGuid();
     private readonly RecordingListener _listener = new();
+    private readonly ProgressListener _progress = new();
+    private readonly RecordingFrames _frames = new();
+    private readonly SwitchGate _gate = new();
 
     public TranscriptionWorkerTests()
     {
-        _sink = new TranscriptionSink(Options.Create(new VadOptions()), new FixedRouter(deepgram: false));
+        _sink = new TranscriptionSink(Options.Create(new VadOptions()), new FixedRouter(deepgram: false), _gate);
         var services = new ServiceCollection();
         services.AddSingleton<ITranscriptRepository>(_store);
         services.AddSingleton<IUnitOfWork>(_store);
         services.AddSingleton<ISpeechToTextProvider>(_stt);
         services.AddSingleton<ITranscriptSegmentListener>(new ThrowingListener());
         services.AddSingleton<ITranscriptSegmentListener>(_listener);
+        services.AddSingleton<ITranscriptSegmentListener>(_progress);
         _provider = services.BuildServiceProvider();
+        _progress.Read = () => _sink.TranscribedThroughMs(_sessionId, Speaker.Candidate);
         _worker = new TranscriptionWorker(
             _sink,
             _provider.GetRequiredService<IServiceScopeFactory>(),
             _publisher,
-            NullLogger<TranscriptionWorker>.Instance);
+            NullLogger<TranscriptionWorker>.Instance,
+            [_frames]);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -86,6 +92,111 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
 
         segment.Text.Should().Be("What is your biggest strength?");
         segment.SessionId.Should().Be(_sessionId);
+    }
+
+    [Fact]
+    public async Task Should_MarkTheStreamTranscribed_OnlyOnceItsSegmentIsDelivered()
+    {
+        _stt.Reply = "my last words";
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Candidate, loudFrames: 5, silentFrames: 6);
+        var segment = await _listener.WaitAsync();
+        await WaitUntilAsync(() => _progress.SeenWhenDelivered >= 0);
+
+        _progress.SeenWhenDelivered.Should().BeLessThan(segment.EndMs, "speech still being transcribed isn't transcribed yet");
+        await WaitUntilAsync(() => _sink.TranscribedThroughMs(_sessionId, Speaker.Candidate) == _sink.PositionMs(_sessionId, Speaker.Candidate));
+        _sink.TranscribedThroughMs(_sessionId, Speaker.Candidate).Should().Be(1_100);
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> condition)
+    {
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(Ct);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        while (!condition())
+        {
+            await Task.Delay(10, timeout.Token);
+        }
+    }
+
+    /// <summary>Records how far the sink said transcription had got when the segment reached listeners.</summary>
+    private sealed class ProgressListener : ITranscriptSegmentListener
+    {
+        public Func<long> Read { get; set; } = () => 0;
+
+        public long SeenWhenDelivered { get; private set; } = -1;
+
+        public ValueTask OnSegmentAsync(TranscriptSegment segment, CancellationToken cancellationToken)
+        {
+            SeenWhenDelivered = Read();
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    [Fact]
+    public async Task Should_DropWhisperNoiseLabels_AsIfNothingWasSaid()
+    {
+        _stt.Reply = "(mumbles)";
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Candidate, loudFrames: 5, silentFrames: 6);
+        await _stt.WaitForCallsAsync(1);
+        await WaitUntilAsync(() => _frames.Count >= 11);
+
+        _store.Segments.Should().BeEmpty();
+        _publisher.Events.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task Should_ReportEachHandledFrame_WithWhereTheVoiceLastEnded()
+    {
+        _stt.Reply = "words";
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Candidate, loudFrames: 5, silentFrames: 6);
+        await WaitUntilAsync(() => _frames.Count >= 11);
+
+        var mid = _frames.All[4];
+        mid.Should().Be(new AudioProgress(_sessionId, Speaker.Candidate, 500, 500, SpeechPending: true));
+        var last = _frames.All[10];
+        last.Should().Be(new AudioProgress(_sessionId, Speaker.Candidate, 1_100, 500, SpeechPending: false));
+    }
+
+    private sealed class RecordingFrames : IAudioProgressListener
+    {
+        private readonly List<AudioProgress> _seen = [];
+
+        public int Count
+        {
+            get
+            {
+                lock (_seen)
+                {
+                    return _seen.Count;
+                }
+            }
+        }
+
+        public IReadOnlyList<AudioProgress> All
+        {
+            get
+            {
+                lock (_seen)
+                {
+                    return [.. _seen];
+                }
+            }
+        }
+
+        public ValueTask OnFrameHandledAsync(AudioProgress progress, CancellationToken cancellationToken)
+        {
+            lock (_seen)
+            {
+                _seen.Add(progress);
+            }
+
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class ThrowingListener : ITranscriptSegmentListener
@@ -147,6 +258,22 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
         chunk.SampleRate.Should().Be(16_000);
         chunk.StartMs.Should().Be(300);
         chunk.Pcm16.Length.Should().Be(4 * FrameBytes);
+    }
+
+    [Fact]
+    public async Task Should_EndTheSpeechAtAGap_AndTimeEachSegmentByItsStreamPosition()
+    {
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Candidate, loudFrames: 4, silentFrames: 0); // frames 0-3, still mid-speech
+        _gate.Accept = false;
+        await SendAsync(Speaker.Candidate, loudFrames: 5, silentFrames: 0); // frames 4-8, dropped by the gate
+        _gate.Accept = true;
+        await SendAsync(Speaker.Candidate, loudFrames: 4, silentFrames: 6); // frames 9-12, then a pause
+        await _publisher.WaitForAsync(2);
+
+        _stt.Chunks.Select(c => c.StartMs).Should().Equal(0, 900);
+        _stt.Chunks.Should().AllSatisfy(c => c.Pcm16.Length.Should().Be(4 * FrameBytes));
     }
 
     [Fact]

@@ -42,12 +42,15 @@ public static class DependencyInjection
         services.AddScoped<PracticeService>();
         services.AddSingleton<PracticeAnswerCollector>();
         services.AddSingleton<ITranscriptSegmentListener>(provider => provider.GetRequiredService<PracticeAnswerCollector>());
+        services.AddSingleton<IAudioCaptureGate, PracticeCaptureGate>(); // #78: no mock-interview transcription between questions
+        services.AddSingleton<IAudioProgressListener, PracticeSilenceWatcher>(); // #78: score after 6 s without voice
 
         services.AddSingleton<AudioStatsSink>();
         services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<AudioStatsSink>());
         services.AddSingleton<ISpeechToTextRouter, SpeechToTextRouter>();
         services.AddSingleton<TranscriptionSink>();
         services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<TranscriptionSink>());
+        services.AddSingleton<IAudioStreamClock>(provider => provider.GetRequiredService<TranscriptionSink>());
         services.AddSingleton<DeepgramStreamingSink>();
         services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<DeepgramStreamingSink>());
         services.AddHostedService<TranscriptionWorker>();

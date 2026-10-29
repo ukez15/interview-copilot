@@ -1,4 +1,4 @@
-import { SseParser } from './sse';
+import { SseParser, type SseEvent } from './sse';
 import type {
   AnswerHeader,
   AnswerModifier,
@@ -15,11 +15,16 @@ import type {
   StorageInfo,
   SessionSettingsInput,
   PracticeAttempt,
+  PracticeQuestion,
   Transcript,
   WhisperModel,
 } from '@/types/api';
 
 export const DEFAULT_API_BASE_URL = 'http://127.0.0.1:5480';
+
+export const QUESTION_STREAM_ENDED = 'The question stopped before it was finished. Try again.';
+
+export const SCORE_STREAM_ENDED = 'Scoring stopped before it was finished. Try again.';
 
 export class ApiError extends Error {
   constructor(
@@ -36,6 +41,12 @@ export interface AnswerStreamHandlers {
   onToken: (token: string) => void;
   onError: (message: string) => void;
   onDone: () => void;
+}
+
+export interface ScoreStreamHandlers {
+  onScore?: (score: number) => void;
+  onToken?: (token: string) => void;
+  onRestart?: () => void;
 }
 
 export interface AskInput {
@@ -124,15 +135,63 @@ export class ApiClient {
     return this.json(`/api/sessions/${id}/transcript`);
   }
 
-  /** #26: asks the next mock-interview question and opens it for the candidate's spoken answer. */
-  async practiceNext(sessionId: string): Promise<string> {
-    const body = await this.json<{ question: string }>(`/api/sessions/${sessionId}/practice/next`, { method: 'POST' });
-    return body.question;
+  /**
+   * #26: asks the next mock-interview question and opens it for the candidate's spoken answer. The question streams
+   * in as it's written (#78): `onToken` gets each piece, and the promise resolves with the whole question.
+   */
+  async practiceNext(sessionId: string, onToken: (token: string) => void = () => {}): Promise<PracticeQuestion> {
+    const response = await this.send(`/api/sessions/${sessionId}/practice/next`, { method: 'POST' });
+    let asked: PracticeQuestion | null = null;
+    await readEvents(response, (event) => {
+      switch (event.event) {
+        case 'delta':
+          onToken(event.data);
+          break;
+        case 'error':
+          throw new ApiError(response.status, event.data);
+        case 'done': {
+          const body = JSON.parse(event.data) as Partial<PracticeQuestion>;
+          asked = { question: body.question ?? '', answerFromMs: body.answerFromMs ?? 0 };
+          break;
+        }
+      }
+    });
+    if (!asked) {
+      throw new ApiError(response.status, QUESTION_STREAM_ENDED);
+    }
+    return asked;
   }
 
-  /** #26: scores the answer heard since the question was asked and saves the attempt. */
-  practiceFinish(sessionId: string): Promise<PracticeAttempt> {
-    return this.json(`/api/sessions/${sessionId}/practice/finish`, { method: 'POST' });
+  /**
+   * #26: scores the answer heard since the question was asked and saves the attempt. The score streams in as it's
+   * written (#78): `onScore` once, `onToken` for each piece of feedback, and `onRestart` if the model's reply had
+   * to be asked again (drop what was shown). Resolves with the saved attempt.
+   */
+  async practiceFinish(sessionId: string, handlers: ScoreStreamHandlers = {}): Promise<PracticeAttempt> {
+    const response = await this.send(`/api/sessions/${sessionId}/practice/finish`, { method: 'POST' });
+    let saved: PracticeAttempt | null = null;
+    await readEvents(response, (event) => {
+      switch (event.event) {
+        case 'score':
+          handlers.onScore?.(Number(event.data));
+          break;
+        case 'delta':
+          handlers.onToken?.(event.data);
+          break;
+        case 'restart':
+          handlers.onRestart?.();
+          break;
+        case 'error':
+          throw new ApiError(response.status, event.data);
+        case 'done':
+          saved = JSON.parse(event.data) as PracticeAttempt;
+          break;
+      }
+    });
+    if (!saved) {
+      throw new ApiError(response.status, SCORE_STREAM_ENDED);
+    }
+    return saved;
   }
 
   practiceAttempts(sessionId: string): Promise<PracticeAttempt[]> {
@@ -264,34 +323,22 @@ export class ApiClient {
       }),
     });
 
-    if (!response.body) {
-      throw new ApiError(response.status, 'The answer stream was empty.');
-    }
-
-    const parser = new SseParser();
-    const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) {
-        return;
+    await readEvents(response, (event) => {
+      switch (event.event) {
+        case 'meta':
+          handlers.onHeader(JSON.parse(event.data) as AnswerHeader);
+          break;
+        case 'delta':
+          handlers.onToken(event.data);
+          break;
+        case 'error':
+          handlers.onError(event.data);
+          break;
+        case 'done':
+          handlers.onDone();
+          break;
       }
-      for (const event of parser.push(value)) {
-        switch (event.event) {
-          case 'meta':
-            handlers.onHeader(JSON.parse(event.data) as AnswerHeader);
-            break;
-          case 'delta':
-            handlers.onToken(event.data);
-            break;
-          case 'error':
-            handlers.onError(event.data);
-            break;
-          case 'done':
-            handlers.onDone();
-            break;
-        }
-      }
-    }
+    });
   }
 
   private async json<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -349,6 +396,25 @@ export class ApiClient {
       return await this.fetchImpl(`${this.baseUrl}${path}`, { ...init, headers });
     } catch {
       throw new ApiError(0, "Can't reach the InterviewCopilot backend. Is the desktop app running?");
+    }
+  }
+}
+
+/** Feeds each server-sent event to `onEvent` until the stream ends; `onEvent` may throw to stop reading. */
+async function readEvents(response: Response, onEvent: (event: SseEvent) => void): Promise<void> {
+  if (!response.body) {
+    throw new ApiError(response.status, 'The answer stream was empty.');
+  }
+
+  const parser = new SseParser();
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) {
+      return;
+    }
+    for (const event of parser.push(value)) {
+      onEvent(event);
     }
   }
 }

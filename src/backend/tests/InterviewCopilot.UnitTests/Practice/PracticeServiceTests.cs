@@ -21,14 +21,20 @@ public class PracticeServiceTests
     private readonly InMemoryPreferences _prefs = new();
     private readonly PracticeAnswerCollector _collector = new();
     private readonly QueueLlm _llm = new();
+    private readonly FixedStreamClock _audioClock = new();
     private readonly PracticeService _service;
     private readonly Session _session;
 
     public PracticeServiceTests()
     {
         _session = NewSession(SessionMode.MockInterview, start: true);
+        _service = CreateService(new FixedClock());
+    }
+
+    private PracticeService CreateService(TimeProvider clock)
+    {
         var sessions = new SessionService(_store, _store, new FixedClock());
-        _service = new PracticeService(
+        return new PracticeService(
             sessions,
             _store,
             _store,
@@ -36,7 +42,8 @@ public class PracticeServiceTests
             new LlmProviderResolver([_llm]),
             Options.Create(new LlmOptions { Model = "default-model", Temperature = 0.3 }),
             _collector,
-            new FixedClock());
+            clock,
+            _audioClock);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -56,16 +63,78 @@ public class PracticeServiceTests
     private async Task AnswerAsync(Guid sessionId, string text) =>
         await _collector.OnSegmentAsync(TranscriptSegment.Create(sessionId, Speaker.Candidate, 0, 1, text), Ct);
 
+    /// <summary>Reads the whole question stream, as the overlay does, and returns the opened question.</summary>
+    private async Task<PracticeQuestionDto> AskAsync(Guid sessionId)
+    {
+        PracticeQuestionDto? asked = null;
+        await foreach (var part in await _service.NextAsync(Owner, sessionId, Ct))
+        {
+            asked = part.Question ?? asked;
+        }
+
+        return asked!;
+    }
+
+    [Fact]
+    public async Task Should_StreamTheQuestion_AndOpenItOnlyOnceItIsComplete()
+    {
+        _llm.Replies.Enqueue(["  Tell me ", "about yourself.\n"]);
+        var parts = new List<PracticeQuestionPart>();
+
+        await foreach (var part in await _service.NextAsync(Owner, _session.Id, Ct))
+        {
+            _collector.IsOpen(_session.Id).Should().Be(part.Question is not null);
+            parts.Add(part);
+        }
+
+        parts.Select(p => p.Delta).Should().Equal("  Tell me ", "about yourself.\n", string.Empty);
+        parts[^1].Question.Should().Be(new PracticeQuestionDto("Tell me about yourself.", 0));
+    }
+
+    [Fact]
+    public async Task Should_CloseTheOpenQuestion_BeforeWritingTheNextOne()
+    {
+        _llm.Replies.Enqueue(["First?"]);
+        _llm.Replies.Enqueue(["Second?"]);
+        await AskAsync(_session.Id);
+
+        var parts = await _service.NextAsync(Owner, _session.Id, Ct);
+
+        _collector.IsOpen(_session.Id).Should().BeFalse("the mic rests while the next question is written");
+        PracticeQuestionDto? second = null;
+        await foreach (var part in parts)
+        {
+            second = part.Question ?? second;
+        }
+
+        second!.Question.Should().Be("Second?");
+        _collector.IsOpen(_session.Id).Should().BeTrue();
+    }
+
     [Fact]
     public async Task Should_AskQuestion_UsingDefaultModel_AndOpenIt()
     {
         _llm.Replies.Enqueue(["  Tell me ", "about yourself.\n"]);
 
-        var next = await _service.NextAsync(Owner, _session.Id, Ct);
+        var next = await AskAsync(_session.Id);
 
         next.Question.Should().Be("Tell me about yourself.");
         _llm.Requests.Single().Model.Should().Be("default-model");
         _collector.Take(_session.Id)!.Question.Should().Be("Tell me about yourself.");
+    }
+
+    [Fact]
+    public async Task Should_StartTheAnswerWhereTheMicStreamIs_When_TheQuestionIsShown()
+    {
+        _audioClock.Position = 42_000;
+        _llm.Replies.Enqueue(["Why us?"]);
+
+        var next = await AskAsync(_session.Id);
+        await _collector.OnSegmentAsync(TranscriptSegment.Create(_session.Id, Speaker.Candidate, 30_000, 31_000, "said while it was thinking"), Ct);
+        await _collector.OnSegmentAsync(TranscriptSegment.Create(_session.Id, Speaker.Candidate, 43_000, 44_000, "my answer"), Ct);
+
+        next.AnswerFromMs.Should().Be(42_000);
+        _collector.Take(_session.Id).Should().Be(new CollectedAnswer("Why us?", "my answer", 42_000));
     }
 
     [Theory]
@@ -79,7 +148,7 @@ public class PracticeServiceTests
         _prefs.Add(prefs);
         _llm.Replies.Enqueue(["Q?"]);
 
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
 
         _llm.Requests.Single().Model.Should().Be(expectedModel);
     }
@@ -90,7 +159,7 @@ public class PracticeServiceTests
         _store.Add(PracticeAttempt.Create(_session.Id, "Old question?", "a", 5, "f", FixedClock.Default));
         _llm.Replies.Enqueue(["New?"]);
 
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
 
         _llm.Requests.Single().Messages[1].Content.Should().Contain("- Old question?");
     }
@@ -100,10 +169,10 @@ public class PracticeServiceTests
     {
         _llm.Replies.Enqueue(["First?"]);
         _llm.Replies.Enqueue(["Second?"]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
         await AnswerAsync(_session.Id, "stale words");
 
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
 
         _collector.Take(_session.Id).Should().Be(new CollectedAnswer("Second?", string.Empty));
     }
@@ -113,11 +182,11 @@ public class PracticeServiceTests
     {
         _llm.Replies.Enqueue(["Why us?"]);
         _llm.Replies.Enqueue(["SCORE: 8\n", "FEEDBACK: Clear structure."]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
         await AnswerAsync(_session.Id, "Because of the mission.");
         await AnswerAsync(_session.Id, "And the team.");
 
-        var attempt = await _service.FinishAsync(Owner, _session.Id, Ct);
+        var attempt = await ScoreAsync(_session.Id);
 
         attempt.Score.Should().Be(8);
         attempt.Feedback.Should().Be("Clear structure.");
@@ -129,16 +198,138 @@ public class PracticeServiceTests
         (await _service.ListAsync(Owner, _session.Id, Ct)).Should().ContainSingle().Which.Id.Should().Be(attempt.Id);
     }
 
+    /// <summary>Reads the whole score stream, as the overlay does, and returns the saved attempt.</summary>
+    private async Task<PracticeAttemptDto> ScoreAsync(Guid sessionId, PracticeService? service = null)
+    {
+        PracticeAttemptDto? saved = null;
+        await foreach (var part in await (service ?? _service).FinishAsync(Owner, sessionId, Ct))
+        {
+            saved = part.Attempt ?? saved;
+        }
+
+        return saved!;
+    }
+
+    [Fact]
+    public async Task Should_StreamTheScoreFirst_ThenTheFeedback_ThenTheSavedAttempt()
+    {
+        _llm.Replies.Enqueue(["Why us?"]);
+        _llm.Replies.Enqueue(["SCORE: ", "8", "\n", "FEEDBACK: Clear ", "structure."]);
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "Because of the mission.");
+        var parts = new List<PracticeScorePart>();
+
+        await foreach (var part in await _service.FinishAsync(Owner, _session.Id, Ct))
+        {
+            parts.Add(part);
+        }
+
+        parts[0].Score.Should().Be(8);
+        string.Concat(parts.Select(p => p.Delta)).Should().Be("Clear structure.");
+        parts.Should().ContainSingle(p => p.Attempt != null).Which.Should().BeSameAs(parts[^1]);
+        parts[^1].Attempt!.Feedback.Should().Be("Clear structure.");
+    }
+
+    [Fact]
+    public async Task Should_TellTheOverlayToStartAgain_When_TheFirstReplyCannotBeRead()
+    {
+        _llm.Replies.Enqueue(["Q?"]);
+        _llm.Replies.Enqueue(["SCORE: 99\nFEEDBACK: garbled"]);
+        _llm.Replies.Enqueue([GoodReply]);
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "words");
+        var parts = new List<PracticeScorePart>();
+
+        await foreach (var part in await _service.FinishAsync(Owner, _session.Id, Ct))
+        {
+            parts.Add(part);
+        }
+
+        var restart = parts.FindIndex(p => p.Restart);
+        restart.Should().BePositive("the garbled feedback was streamed first");
+        string.Concat(parts.Skip(restart + 1).Select(p => p.Delta)).Should().Be("Clear structure.");
+        parts[^1].Attempt!.Score.Should().Be(8);
+    }
+
+    [Fact]
+    public async Task Should_KeepTheAnswer_When_TheOverlayStopsReadingMidScore()
+    {
+        _llm.Replies.Enqueue(["Q?"]);
+        _llm.Replies.Enqueue(["SCORE: 8\n", "FEEDBACK: Clear ", "structure."]);
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "words");
+
+        var parts = (await _service.FinishAsync(Owner, _session.Id, Ct)).GetAsyncEnumerator(Ct);
+        await using (parts)
+        {
+            (await parts.MoveNextAsync()).Should().BeTrue();
+            parts.Current.Score.Should().Be(8);
+        } // the client went away after the score
+
+        _store.Attempts.Should().BeEmpty();
+        _collector.IsOpen(_session.Id).Should().BeTrue("the candidate can score it again");
+    }
+
+    [Fact]
+    public async Task Should_WaitForTheLastWords_BeforeScoring()
+    {
+        _llm.Replies.Enqueue(["Why us?"]);
+        _llm.Replies.Enqueue([GoodReply]);
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "Because of the mission.");
+        _audioClock.Position = 5_000;
+        _audioClock.TranscribedThrough = 3_000; // "Done answering" came while the last sentence was still in Whisper
+
+        var finishing = ScoreAsync(_session.Id);
+        await Task.Delay(150, Ct);
+        finishing.IsCompleted.Should().BeFalse();
+        await AnswerAsync(_session.Id, "And the team.");
+        _audioClock.TranscribedThrough = 5_000;
+
+        (await finishing).AnswerText.Should().Be("Because of the mission. And the team.");
+    }
+
+    [Fact]
+    public async Task Should_StopWaitingAfterFiveSeconds_AndScoreWhatWasHeard()
+    {
+        var timers = new InstantTimers();
+        var service = CreateService(timers);
+        _llm.Replies.Enqueue(["Why us?"]);
+        _llm.Replies.Enqueue([GoodReply]);
+        await AskAsync(_session.Id);
+        await AnswerAsync(_session.Id, "Because of the mission.");
+        _audioClock.Position = 5_000;
+        _audioClock.TranscribedThrough = 3_000; // never catches up
+
+        var attempt = await ScoreAsync(_session.Id, service);
+
+        attempt.AnswerText.Should().Be("Because of the mission.");
+        timers.Created.Should().Be(PracticeService.LastWordsWaitMs / PracticeService.LastWordsPollMs);
+    }
+
+    [Fact]
+    public async Task Should_NotWait_When_NoQuestionIsOpen()
+    {
+        var timers = new InstantTimers();
+        var service = CreateService(timers);
+        _audioClock.TranscribedThrough = -1;
+
+        var act = () => service.FinishAsync(Owner, _session.Id, Ct);
+
+        await act.Should().ThrowAsync<DomainException>();
+        timers.Created.Should().Be(0);
+    }
+
     [Fact]
     public async Task Should_RetryOnce_When_ReplyIsUnparseable()
     {
         _llm.Replies.Enqueue(["Q?"]);
         _llm.Replies.Enqueue(["I think it was good."]);
         _llm.Replies.Enqueue([GoodReply]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
         await AnswerAsync(_session.Id, "words");
 
-        var attempt = await _service.FinishAsync(Owner, _session.Id, Ct);
+        var attempt = await ScoreAsync(_session.Id);
 
         attempt.Score.Should().Be(8);
         _llm.Requests.Should().HaveCount(3);
@@ -151,22 +342,22 @@ public class PracticeServiceTests
         _llm.Replies.Enqueue(["nope"]);
         _llm.Replies.Enqueue(["still nope"]);
         _llm.Replies.Enqueue([GoodReply]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
         await AnswerAsync(_session.Id, "words");
 
-        var act = () => _service.FinishAsync(Owner, _session.Id, Ct);
+        var act = () => ScoreAsync(_session.Id);
 
         (await act.Should().ThrowAsync<LlmUnavailableException>())
             .WithMessage("The model's feedback couldn't be read. Try again.");
         _store.Attempts.Should().BeEmpty();
-        (await _service.FinishAsync(Owner, _session.Id, Ct)).AnswerText.Should().Be("words"); // kept for a retry
+        (await ScoreAsync(_session.Id)).AnswerText.Should().Be("words"); // kept for a retry
     }
 
     [Fact]
     public async Task Should_Throw_AndSaveNothing_When_AnswerIsEmpty()
     {
         _llm.Replies.Enqueue(["Q?"]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
+        await AskAsync(_session.Id);
 
         var act = () => _service.FinishAsync(Owner, _session.Id, Ct);
 
@@ -188,7 +379,7 @@ public class PracticeServiceTests
     {
         _llm.Replies.Enqueue(["   "]);
 
-        var act = () => _service.NextAsync(Owner, _session.Id, Ct);
+        var act = () => AskAsync(_session.Id);
 
         await act.Should().ThrowAsync<LlmUnavailableException>();
         _collector.Take(_session.Id).Should().BeNull();
@@ -201,11 +392,11 @@ public class PracticeServiceTests
         _llm.Replies.Enqueue(["A?"]);
         _llm.Replies.Enqueue(["B?"]);
         _llm.Replies.Enqueue([GoodReply]);
-        await _service.NextAsync(Owner, _session.Id, Ct);
-        await _service.NextAsync(Owner, other.Id, Ct);
+        await AskAsync(_session.Id);
+        await AskAsync(other.Id);
         await AnswerAsync(other.Id, "only B");
 
-        var attempt = await _service.FinishAsync(Owner, other.Id, Ct);
+        var attempt = await ScoreAsync(other.Id);
 
         attempt.Question.Should().Be("B?");
         (await _service.ListAsync(Owner, _session.Id, Ct)).Should().BeEmpty();

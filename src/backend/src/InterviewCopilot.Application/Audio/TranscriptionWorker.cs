@@ -23,17 +23,20 @@ public sealed partial class TranscriptionWorker : BackgroundService
     private readonly IServiceScopeFactory _scopes;
     private readonly ISessionEventPublisher _publisher;
     private readonly ILogger<TranscriptionWorker> _logger;
+    private readonly IAudioProgressListener[] _progress;
 
     /// <summary>Creates the worker.</summary>
     /// <param name="sink">The sink whose queues are drained.</param>
     /// <param name="scopes">Creates a scope per segment for the scoped repositories.</param>
     /// <param name="publisher">Where transcript and error events go.</param>
     /// <param name="logger">Logger; never receives audio or transcript text.</param>
+    /// <param name="progress">Told after each handled frame (#78); none given means no one listens.</param>
     public TranscriptionWorker(
         TranscriptionSink sink,
         IServiceScopeFactory scopes,
         ISessionEventPublisher publisher,
-        ILogger<TranscriptionWorker> logger)
+        ILogger<TranscriptionWorker> logger,
+        IEnumerable<IAudioProgressListener>? progress = null)
     {
         ArgumentNullException.ThrowIfNull(sink);
         ArgumentNullException.ThrowIfNull(scopes);
@@ -43,6 +46,7 @@ public sealed partial class TranscriptionWorker : BackgroundService
         _scopes = scopes;
         _publisher = publisher;
         _logger = logger;
+        _progress = progress?.ToArray() ?? [];
     }
 
     /// <inheritdoc />
@@ -90,11 +94,28 @@ public sealed partial class TranscriptionWorker : BackgroundService
         }
     }
 
+    /// <summary>One failing listener must not stop the others or the transcription itself.</summary>
+    [SuppressMessage("Design", "CA1031:Do not catch general exception types", Justification = "Listener failures are isolated and logged.")]
+    private async Task ReportProgressAsync(AudioProgress progress, CancellationToken cancellationToken)
+    {
+        foreach (var listener in _progress)
+        {
+            try
+            {
+                await listener.OnFrameHandledAsync(progress, cancellationToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                LogListenerFailed(progress.SessionId, ex.GetType().Name);
+            }
+        }
+    }
+
     private async Task DrainAsync(SessionPipeline pipeline, CancellationToken cancellationToken)
     {
         try
         {
-            await foreach (var frame in pipeline.Frames.Reader.ReadAllAsync(cancellationToken))
+            await foreach (var queued in pipeline.Frames.Reader.ReadAllAsync(cancellationToken))
             {
                 var dropped = pipeline.TakeNewDrops();
                 if (dropped > 0)
@@ -102,11 +123,27 @@ public sealed partial class TranscriptionWorker : BackgroundService
                     LogDroppedFrames(dropped, pipeline.SessionId);
                 }
 
-                var segment = pipeline.BufferFor(frame.Speaker).Push(frame.Pcm16);
+                var speaker = queued.Frame.Speaker;
+                var buffer = pipeline.BufferFor(speaker);
+
+                // Frames were skipped (the gate closed, or the queue overflowed): end the speech before the gap
+                // rather than stitching audio from two moments into one segment.
+                if (buffer.HasSpeech && queued.Index != buffer.NextFrameIndex && buffer.Flush() is { } cut)
+                {
+                    await TranscribeAsync(pipeline.SessionId, speaker, cut, cancellationToken);
+                }
+
+                var segment = buffer.Push(queued.Frame.Pcm16, queued.Index);
                 if (segment is not null)
                 {
-                    await TranscribeAsync(pipeline.SessionId, frame.Speaker, segment, cancellationToken);
+                    await TranscribeAsync(pipeline.SessionId, speaker, segment, cancellationToken);
                 }
+
+                // Only now, with any segment delivered, does the speaker's stream count as transcribed this far.
+                _sink.MarkTranscribed(pipeline, speaker, buffer.CutThroughMs);
+                await ReportProgressAsync(
+                    new AudioProgress(pipeline.SessionId, speaker, buffer.NextFrameIndex * VadOptions.FrameMs, buffer.LastVoiceEndMs, buffer.HasSpeech),
+                    cancellationToken);
             }
 
             // The stream ended and the queue is empty: transcribe what each speaker was still saying.
@@ -134,9 +171,9 @@ public sealed partial class TranscriptionWorker : BackgroundService
             var provider = scope.ServiceProvider.GetRequiredService<ISpeechToTextProvider>();
             var chunk = new AudioChunk(speaker, speech.Pcm16, AudioFrameParser.SampleRate, speech.StartMs);
             var result = await provider.TranscribeAsync(chunk, null, cancellationToken);
-            if (string.IsNullOrWhiteSpace(result.Text))
+            if (SpeechText.IsNoSpeech(result.Text))
             {
-                return;
+                return; // nothing said, or only Whisper's noise labels such as "(mumbles)"
             }
 
             var segment = TranscriptSegment.Create(sessionId, speaker, speech.StartMs, speech.EndMs, result.Text);

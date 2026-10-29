@@ -5,7 +5,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using InterviewCopilot.Api.Infrastructure;
 using InterviewCopilot.Application.Copilot;
-using InterviewCopilot.Application.Providers;
 using InterviewCopilot.Application.Sessions;
 using InterviewCopilot.Domain.Enums;
 using Microsoft.AspNetCore.Mvc;
@@ -57,38 +56,10 @@ internal static class CopilotEndpoints
     {
         yield return new SseItem<string>(JsonSerializer.Serialize(header, JsonOptions), "meta");
 
-        var enumerator = tokens.GetAsyncEnumerator(cancellationToken);
-        string? error = null;
-        try
+        var done = new SseItem<string>(string.Empty, LlmEventStream.Done);
+        await foreach (var item in LlmEventStream.RelayAsync(tokens, token => new SseItem<string>(token, LlmEventStream.Delta), done, cancellationToken))
         {
-            while (true)
-            {
-                string token;
-                try
-                {
-                    if (!await enumerator.MoveNextAsync())
-                    {
-                        break;
-                    }
-
-                    token = enumerator.Current;
-                }
-                catch (LlmUnavailableException ex)
-                {
-                    error = ex.Message;
-                    break;
-                }
-
-                yield return new SseItem<string>(token, "delta");
-            }
+            yield return item;
         }
-        finally
-        {
-            await enumerator.DisposeAsync();
-        }
-
-        yield return error is null
-            ? new SseItem<string>(string.Empty, "done")
-            : new SseItem<string>(error, "error");
     }
 }

@@ -9,6 +9,9 @@ public static class SessionEventTypes
     public const string AnswerDone = "answer.done";
     public const string Error = "error";
     public const string AutoAnswerState = "autoanswer.state";
+
+    /// <summary>#78: the candidate has been quiet for 6 s after answering, so the overlay can score.</summary>
+    public const string PracticeSilence = "practice.silence";
 }
 
 /// <summary>One event as sent to clients: <c>{"id":n,"type":"…","data":{…}}</c>. Ids increase per session from 1.</summary>

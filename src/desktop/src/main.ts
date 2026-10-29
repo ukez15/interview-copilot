@@ -6,6 +6,7 @@ import { refreshAccessToken } from './auth-refresh';
 import { AuthStore } from './auth-store';
 import { CaptureController } from './capture-controller';
 import { openDataFolder } from './data-folder';
+import { endLiveSession } from './end-on-quit';
 import { APP_HOST, APP_PROTOCOL, BACKEND_URL, CaptureChannels, IpcChannels, IpcEvents } from './ipc-channels';
 import { KeyStore } from './key-store';
 import { currentMeeting, decide, meetingEventFor } from './meeting-detection';
@@ -231,8 +232,21 @@ void app.whenReady().then(async () => {
   watchForMeetings();
 });
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', () => app.quit());
+
+// #84: however the app quits (last window closed, Cmd+Q, tray), end the live session first, so it doesn't stay
+// Live and undeletable. The quit waits at most END_ON_QUIT_TIMEOUT_MS for the backend.
+let liveSessionEnded = false;
+app.on('before-quit', (event) => {
+  if (liveSessionEnded || !capture.liveSessionId) {
+    return;
+  }
+  event.preventDefault();
+  liveSessionEnded = true;
+  void endLiveSession({ sessionId: capture.liveSessionId, token: authToken, backendUrl: BACKEND_URL }).finally(() => app.quit());
+});
+
+app.on('will-quit', () => {
   capture.stop();
   backend?.stop();
-  app.quit();
 });
