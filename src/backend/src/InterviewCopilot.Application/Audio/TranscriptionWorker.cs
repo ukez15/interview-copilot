@@ -24,6 +24,7 @@ public sealed partial class TranscriptionWorker : BackgroundService
     private readonly ISessionEventPublisher _publisher;
     private readonly ILogger<TranscriptionWorker> _logger;
     private readonly IAudioProgressListener[] _progress;
+    private readonly ISpeechModelSelector? _speechModels;
 
     /// <summary>Creates the worker.</summary>
     /// <param name="sink">The sink whose queues are drained.</param>
@@ -31,12 +32,14 @@ public sealed partial class TranscriptionWorker : BackgroundService
     /// <param name="publisher">Where transcript and error events go.</param>
     /// <param name="logger">Logger; never receives audio or transcript text.</param>
     /// <param name="progress">Told after each handled frame (#78); none given means no one listens.</param>
+    /// <param name="speechModels">Picks each session's speech model (#85); none given means the configured default.</param>
     public TranscriptionWorker(
         TranscriptionSink sink,
         IServiceScopeFactory scopes,
         ISessionEventPublisher publisher,
         ILogger<TranscriptionWorker> logger,
-        IEnumerable<IAudioProgressListener>? progress = null)
+        IEnumerable<IAudioProgressListener>? progress = null,
+        ISpeechModelSelector? speechModels = null)
     {
         ArgumentNullException.ThrowIfNull(sink);
         ArgumentNullException.ThrowIfNull(scopes);
@@ -47,6 +50,7 @@ public sealed partial class TranscriptionWorker : BackgroundService
         _publisher = publisher;
         _logger = logger;
         _progress = progress?.ToArray() ?? [];
+        _speechModels = speechModels;
     }
 
     /// <inheritdoc />
@@ -159,6 +163,7 @@ public sealed partial class TranscriptionWorker : BackgroundService
         finally
         {
             _sink.Release(pipeline);
+            _speechModels?.Forget(pipeline.SessionId); // the next stream picks up a changed choice
         }
     }
 
@@ -169,7 +174,8 @@ public sealed partial class TranscriptionWorker : BackgroundService
         {
             using var scope = _scopes.CreateScope();
             var provider = scope.ServiceProvider.GetRequiredService<ISpeechToTextProvider>();
-            var chunk = new AudioChunk(speaker, speech.Pcm16, AudioFrameParser.SampleRate, speech.StartMs);
+            var model = _speechModels is null ? null : await _speechModels.ForSessionAsync(sessionId, cancellationToken);
+            var chunk = new AudioChunk(speaker, speech.Pcm16, AudioFrameParser.SampleRate, speech.StartMs, model);
             var result = await provider.TranscribeAsync(chunk, null, cancellationToken);
             if (SpeechText.IsNoSpeech(result.Text))
             {

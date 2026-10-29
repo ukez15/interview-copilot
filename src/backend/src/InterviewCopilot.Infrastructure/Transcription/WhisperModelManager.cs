@@ -6,8 +6,9 @@ using Whisper.net.Ggml;
 namespace InterviewCopilot.Infrastructure.Transcription;
 
 /// <summary>
-/// Owns the local Whisper model file: reports whether it is present and downloads it on request,
-/// one download at a time, through "&lt;name&gt;.download" and an atomic rename.
+/// Owns the local Whisper model files (#85): the configured default and <see cref="WhisperModelCatalog.AccurateModel"/>.
+/// Reports whether each is present and downloads one on request, one download at a time, through
+/// "&lt;name&gt;.download" and an atomic rename. Models are named by file name.
 /// </summary>
 internal sealed class WhisperModelManager : IWhisperModelStatus, IDisposable
 {
@@ -18,11 +19,11 @@ internal sealed class WhisperModelManager : IWhisperModelStatus, IDisposable
     private readonly IOptions<TranscriptionOptions> _transcriptionOptions;
     private readonly IOptions<StorageOptions> _storageOptions;
     private readonly IWhisperModelSource _source;
+    private readonly Dictionary<string, string> _failures = new(StringComparer.OrdinalIgnoreCase);
 
-    private bool _downloading;
+    private string? _downloading;
     private long _bytesDownloaded;
     private long? _totalBytes;
-    private string? _failure;
     private Task _download = Task.CompletedTask;
 
     public WhisperModelManager(
@@ -38,6 +39,9 @@ internal sealed class WhisperModelManager : IWhisperModelStatus, IDisposable
         _source = source;
     }
 
+    /// <summary>The configured model, used when a user hasn't chosen one.</summary>
+    public string DefaultModel => _transcriptionOptions.Value.Providers.Whisper.Model;
+
     /// <summary>The in-flight (or last) download task; tests await it.</summary>
     internal Task CurrentDownload
     {
@@ -50,61 +54,55 @@ internal sealed class WhisperModelManager : IWhisperModelStatus, IDisposable
         }
     }
 
-    /// <summary>Full path of the model when it is on disk, otherwise null.</summary>
-    public string? GetReadyPath()
+    /// <summary>Full path of an offered model when it is on disk, otherwise null.</summary>
+    public string? GetReadyPath(string model)
     {
-        var path = ModelPath();
+        var offered = Offered(model);
+        if (offered is null)
+        {
+            return null;
+        }
+
+        var path = ModelPath(offered);
         return File.Exists(path) ? path : null;
     }
 
-    public WhisperModelStatus GetStatus()
+    public IReadOnlyList<WhisperModelStatus> GetModels() => [.. OfferedModels().Select(StatusOf)];
+
+    public WhisperModelStatus? GetStatus(string model) => Offered(model) is { } offered ? StatusOf(offered) : null;
+
+    public WhisperDownloadStart? StartDownload(string model)
     {
-        var model = ModelName();
-        lock (_gate)
+        var offered = Offered(model);
+        if (offered is null)
         {
-            if (_downloading)
-            {
-                return new WhisperModelStatus(WhisperModelState.Downloading, model, _bytesDownloaded, _totalBytes, null);
-            }
-
-            if (File.Exists(ModelPath()))
-            {
-                return new WhisperModelStatus(WhisperModelState.Ready, model, 0, null, null);
-            }
-
-            return _failure is null
-                ? new WhisperModelStatus(WhisperModelState.Missing, model, 0, null, null)
-                : new WhisperModelStatus(WhisperModelState.Failed, model, 0, null, _failure);
+            return null;
         }
-    }
 
-    public WhisperDownloadStart StartDownload()
-    {
-        var model = ModelName();
         lock (_gate)
         {
-            if (_downloading)
+            if (_downloading is not null)
             {
                 return WhisperDownloadStart.AlreadyDownloading;
             }
 
-            var path = ModelPath();
+            var path = ModelPath(offered);
             if (File.Exists(path))
             {
                 return WhisperDownloadStart.AlreadyReady;
             }
 
-            if (!WhisperModelCatalog.TryGetType(model, out var type))
+            if (!WhisperModelCatalog.TryGet(offered, out var ggml))
             {
-                _failure = $"Whisper model '{model}' can't be downloaded automatically. Put the file in {_storageOptions.Value.ResolveModelsDirectory()}.";
+                _failures[offered] = $"Whisper model '{offered}' can't be downloaded automatically. Put the file in {_storageOptions.Value.ResolveModelsDirectory()}.";
                 return WhisperDownloadStart.Started;
             }
 
-            _downloading = true;
+            _downloading = offered;
             _bytesDownloaded = 0;
             _totalBytes = null;
-            _failure = null;
-            _download = Task.Run(() => RunDownloadAsync(type, path), CancellationToken.None);
+            _failures.Remove(offered);
+            _download = Task.Run(() => RunDownloadAsync(offered, ggml, path), CancellationToken.None);
             return WhisperDownloadStart.Started;
         }
     }
@@ -131,18 +129,44 @@ internal sealed class WhisperModelManager : IWhisperModelStatus, IDisposable
         }
     }
 
-    private string ModelName() => _transcriptionOptions.Value.Providers.Whisper.Model;
+    private IEnumerable<string> OfferedModels() =>
+        new[] { DefaultModel, WhisperModelCatalog.AccurateModel }.Distinct(StringComparer.OrdinalIgnoreCase);
 
-    private string ModelPath() => Path.Combine(_storageOptions.Value.ResolveModelsDirectory(), ModelName());
+    /// <summary>The offered model's own spelling of the name, or null when it isn't offered.</summary>
+    private string? Offered(string model) =>
+        OfferedModels().FirstOrDefault(offered => string.Equals(offered, model, StringComparison.OrdinalIgnoreCase));
 
-    private async Task RunDownloadAsync(GgmlType type, string path)
+    private string ModelPath(string model) => Path.Combine(_storageOptions.Value.ResolveModelsDirectory(), model);
+
+    private WhisperModelStatus StatusOf(string model)
+    {
+        var approximate = WhisperModelCatalog.TryGet(model, out var ggml) ? ggml.ApproximateBytes : null;
+        lock (_gate)
+        {
+            if (string.Equals(_downloading, model, StringComparison.OrdinalIgnoreCase))
+            {
+                return new WhisperModelStatus(WhisperModelState.Downloading, model, _bytesDownloaded, _totalBytes, null, approximate);
+            }
+
+            if (File.Exists(ModelPath(model)))
+            {
+                return new WhisperModelStatus(WhisperModelState.Ready, model, 0, null, null, approximate);
+            }
+
+            return _failures.TryGetValue(model, out var failure)
+                ? new WhisperModelStatus(WhisperModelState.Failed, model, 0, null, failure, approximate)
+                : new WhisperModelStatus(WhisperModelState.Missing, model, 0, null, null, approximate);
+        }
+    }
+
+    private async Task RunDownloadAsync(string model, GgmlModel ggml, string path)
     {
         var temporary = path + ".download";
         string? failure = null;
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            await using (var source = await _source.OpenAsync(type, _shutdown.Token))
+            await using (var source = await _source.OpenAsync(ggml.Type, ggml.Quantization, _shutdown.Token))
             await using (var target = File.Create(temporary))
             {
                 if (source.CanSeek)
@@ -178,8 +202,11 @@ internal sealed class WhisperModelManager : IWhisperModelStatus, IDisposable
         {
             lock (_gate)
             {
-                _downloading = false;
-                _failure = failure;
+                _downloading = null;
+                if (failure is not null)
+                {
+                    _failures[model] = failure;
+                }
             }
         }
     }

@@ -29,7 +29,12 @@ public interface ILlmProvider
 }
 
 /// <summary>A buffered chunk of one speaker's audio: PCM16, mono.</summary>
-public sealed record AudioChunk(Speaker Speaker, ReadOnlyMemory<byte> Pcm16, int SampleRate, long StartMs);
+/// <param name="Speaker">Whose audio it is.</param>
+/// <param name="Pcm16">The samples.</param>
+/// <param name="SampleRate">Samples per second.</param>
+/// <param name="StartMs">Where the chunk starts in the speaker's stream.</param>
+/// <param name="Model">The local speech model to use (#85); null means the configured default. Cloud providers ignore it.</param>
+public sealed record AudioChunk(Speaker Speaker, ReadOnlyMemory<byte> Pcm16, int SampleRate, long StartMs, string? Model = null);
 
 public sealed record TranscriptionResult(string Text);
 

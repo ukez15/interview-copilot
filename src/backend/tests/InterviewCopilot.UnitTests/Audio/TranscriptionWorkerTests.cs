@@ -26,6 +26,7 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
     private readonly RecordingListener _listener = new();
     private readonly ProgressListener _progress = new();
     private readonly RecordingFrames _frames = new();
+    private readonly FixedSpeechModel _speechModel = new();
     private readonly SwitchGate _gate = new();
 
     public TranscriptionWorkerTests()
@@ -45,7 +46,8 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
             _provider.GetRequiredService<IServiceScopeFactory>(),
             _publisher,
             NullLogger<TranscriptionWorker>.Instance,
-            [_frames]);
+            [_frames],
+            _speechModel);
     }
 
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -242,6 +244,37 @@ public sealed class TranscriptionWorkerTests : IAsyncDisposable
         data.GetType().GetProperty("startMs")!.GetValue(data).Should().Be(0L);
         data.GetType().GetProperty("endMs")!.GetValue(data).Should().Be(500L);
         data.GetType().GetProperty("text")!.GetValue(data).Should().Be("Tell me about yourself");
+    }
+
+    [Fact]
+    public async Task Should_TranscribeWithTheSessionsSpeechModel_AndForgetItWhenTheStreamEnds()
+    {
+        _speechModel.Model = FakeSpeechModels.Accurate;
+        await _worker.StartAsync(Ct);
+
+        await SendAsync(Speaker.Candidate, loudFrames: 4, silentFrames: 6);
+        await _publisher.WaitForAsync(1);
+        await _sink.OnStreamEndedAsync(_sessionId, Ct);
+        await WaitUntilAsync(() => _speechModel.Forgotten.Contains(_sessionId));
+
+        _stt.Chunks.Should().ContainSingle().Which.Model.Should().Be(FakeSpeechModels.Accurate);
+    }
+
+    private sealed class FixedSpeechModel : ISpeechModelSelector
+    {
+        public string? Model { get; set; }
+
+        public List<Guid> Forgotten { get; } = [];
+
+        public ValueTask<string?> ForSessionAsync(Guid sessionId, CancellationToken cancellationToken) => ValueTask.FromResult(Model);
+
+        public void Forget(Guid sessionId)
+        {
+            lock (Forgotten)
+            {
+                Forgotten.Add(sessionId);
+            }
+        }
     }
 
     [Fact]

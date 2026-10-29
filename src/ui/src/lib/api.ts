@@ -239,13 +239,19 @@ export class ApiClient {
     return this.json('/api/storage');
   }
 
-  getWhisperModel(): Promise<WhisperModel> {
-    return this.json('/api/providers/whisper/model');
+  /** #85: the offered local speech models, the configured default first. */
+  speechModels(): Promise<WhisperModel[]> {
+    return this.json('/api/providers/whisper/models');
   }
 
-  /** Starts the (user-initiated) speech model download; 409 means one is already running. */
-  downloadWhisperModel(): Promise<WhisperModel> {
-    return this.json('/api/providers/whisper/model/download', { method: 'POST' });
+  /** Starts a speech model's (user-initiated) download; 409 means one is already running. */
+  downloadSpeechModel(model: string): Promise<WhisperModel> {
+    return this.json(`/api/providers/whisper/models/${encodeURIComponent(model)}/download`, { method: 'POST' });
+  }
+
+  /** #85: chooses the local speech model by file name; null means the configured default. It must be downloaded. */
+  setSpeechModel(model: string | null): Promise<Preferences> {
+    return this.json('/api/preferences/speech-model', { method: 'PUT', body: JSON.stringify({ model }) });
   }
 
   ollamaModels(): Promise<OllamaModel[]> {

@@ -85,6 +85,7 @@ internal sealed class UserPreferencesConfiguration : IEntityTypeConfiguration<Us
         builder.Property(p => p.LlmModel).HasMaxLength(UserPreferences.MaxModelLength);
         builder.Property(p => p.LlmProvider).HasMaxLength(UserPreferences.MaxProviderLength);
         builder.Property(p => p.SpeechToTextProvider).HasMaxLength(UserPreferences.MaxProviderLength);
+        builder.Property(p => p.SpeechModel).HasMaxLength(UserPreferences.MaxModelLength);
         builder.HasOne<UserAccount>().WithOne().HasForeignKey<UserPreferences>(p => p.UserId).OnDelete(DeleteBehavior.Cascade);
     }
 }

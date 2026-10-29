@@ -24,6 +24,9 @@ public sealed class UserPreferences
     /// <summary>Speech-to-text provider, e.g. "whisper" or "deepgram" (#20). Null means the configured default.</summary>
     public string? SpeechToTextProvider { get; private set; }
 
+    /// <summary>Local speech model file, e.g. "ggml-large-v3-turbo-q5_0.bin" (#85). Null means the configured default.</summary>
+    public string? SpeechModel { get; private set; }
+
     public DateTimeOffset UpdatedAt { get; private set; }
 
     public static UserPreferences Create(Guid userId, DateTimeOffset now) =>
@@ -52,6 +55,19 @@ public sealed class UserPreferences
     public void SetSpeechToTextProvider(string? provider, DateTimeOffset now)
     {
         SpeechToTextProvider = NormalizeProvider(provider);
+        UpdatedAt = now;
+    }
+
+    /// <summary>Chooses the local speech model by file name; blank means the configured default.</summary>
+    public void SetSpeechModel(string? model, DateTimeOffset now)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(model) ? null : model.Trim();
+        if (trimmed is { Length: > MaxModelLength })
+        {
+            throw new DomainException($"Model names can be at most {MaxModelLength} characters.");
+        }
+
+        SpeechModel = trimmed;
         UpdatedAt = now;
     }
 

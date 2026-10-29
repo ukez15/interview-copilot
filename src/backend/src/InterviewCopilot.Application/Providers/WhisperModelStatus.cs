@@ -15,12 +15,14 @@ public enum WhisperModelState
 /// <param name="BytesDownloaded">Bytes received so far while downloading.</param>
 /// <param name="TotalBytes">Expected size, or null when unknown.</param>
 /// <param name="Message">User-facing failure message when the state is Failed.</param>
+/// <param name="ApproximateBytes">About how big the download is, to show before it starts (#85); null when unknown.</param>
 public sealed record WhisperModelStatus(
     WhisperModelState State,
     string Model,
     long BytesDownloaded,
     long? TotalBytes,
-    string? Message);
+    string? Message,
+    long? ApproximateBytes = null);
 
 /// <summary>Outcome of asking for a download.</summary>
 public enum WhisperDownloadStart
@@ -30,12 +32,18 @@ public enum WhisperDownloadStart
     AlreadyReady,
 }
 
-/// <summary>Reports the speech model state and starts its (user-initiated) download.</summary>
+/// <summary>
+/// The local speech models a user can choose from (#85), their states, and their (user-initiated) downloads.
+/// Models are named by file name; only the ones offered here can be downloaded or chosen.
+/// </summary>
 public interface IWhisperModelStatus
 {
-    /// <summary>Current state of the configured model.</summary>
-    WhisperModelStatus GetStatus();
+    /// <summary>The offered models, the configured default first.</summary>
+    IReadOnlyList<WhisperModelStatus> GetModels();
 
-    /// <summary>Starts the download unless one is running or the model is already present.</summary>
-    WhisperDownloadStart StartDownload();
+    /// <summary>The current state of one offered model; null when it isn't offered.</summary>
+    WhisperModelStatus? GetStatus(string model);
+
+    /// <summary>Starts the model's download unless one is running or it's already present; null when it isn't offered.</summary>
+    WhisperDownloadStart? StartDownload(string model);
 }

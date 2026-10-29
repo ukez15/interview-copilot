@@ -51,19 +51,25 @@ internal static class ProviderEndpoints
 
     private static void MapWhisperModelEndpoints(IEndpointRouteBuilder app)
     {
-        app.MapGet("/api/providers/whisper/model", (IWhisperModelStatus model) => TypedResults.Ok(ToResponse(model.GetStatus())))
+        // #85: the offered local speech models, the configured default first.
+        app.MapGet("/api/providers/whisper/models", (IWhisperModelStatus models) => TypedResults.Ok(models.GetModels().Select(ToResponse)))
             .WithTags("Providers")
             .RequireAuthorization();
 
-        app.MapPost("/api/providers/whisper/model/download", (IWhisperModelStatus model) =>
+        app.MapPost("/api/providers/whisper/models/{model}/download", (string model, IWhisperModelStatus models) =>
         {
-            var start = model.StartDownload();
-            var body = ToResponse(model.GetStatus());
+            var start = models.StartDownload(model);
+            if (start is null)
+            {
+                return Results.NotFound();
+            }
+
+            var body = ToResponse(models.GetStatus(model)!);
             return start switch
             {
                 WhisperDownloadStart.AlreadyDownloading => Results.Conflict(body),
                 WhisperDownloadStart.AlreadyReady => Results.Ok(body),
-                _ => Results.Accepted("/api/providers/whisper/model", body),
+                _ => Results.Accepted("/api/providers/whisper/models", body),
             };
         })
         .WithTags("Providers")
@@ -77,5 +83,6 @@ internal static class ProviderEndpoints
         status.BytesDownloaded,
         status.TotalBytes,
         status.Message,
+        status.ApproximateBytes,
     };
 }

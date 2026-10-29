@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using InterviewCopilot.Application.Providers;
@@ -7,8 +8,9 @@ using Whisper.net;
 namespace InterviewCopilot.Infrastructure.Transcription;
 
 /// <summary>
-/// Local, free speech-to-text with whisper.cpp via Whisper.net (default, NFR-01). The model is
-/// downloaded by <see cref="WhisperModelManager"/> (only when the user asks) and loaded lazily.
+/// Local, free speech-to-text with whisper.cpp via Whisper.net (default, NFR-01). Models are downloaded by
+/// <see cref="WhisperModelManager"/> (only when the user asks); each one loads the first time a chunk asks for it
+/// and then stays loaded (#85).
 /// </summary>
 [ExcludeFromCodeCoverage(Justification = "Needs native whisper.cpp + a ~500 MB model; covered by the manual release checklist.")]
 internal sealed class WhisperSpeechToTextProvider(
@@ -18,7 +20,7 @@ internal sealed class WhisperSpeechToTextProvider(
     internal const string ModelMissingMessage = "The speech model isn't downloaded yet. Download it in Settings → Speech model.";
 
     private readonly SemaphoreSlim _loadLock = new(1, 1);
-    private WhisperFactory? _factory;
+    private readonly ConcurrentDictionary<string, WhisperFactory> _factories = new(StringComparer.OrdinalIgnoreCase);
 
     public string Name => ProviderNames.Whisper;
 
@@ -28,7 +30,7 @@ internal sealed class WhisperSpeechToTextProvider(
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(chunk);
-        var factory = await GetFactoryAsync(cancellationToken);
+        var factory = await GetFactoryAsync(chunk.Model ?? modelManager.DefaultModel, cancellationToken);
         var options = transcriptionOptions.Value.Providers.Whisper;
 
         await using var processor = factory.CreateBuilder().WithLanguage(options.Language).Build();
@@ -44,28 +46,33 @@ internal sealed class WhisperSpeechToTextProvider(
 
     public void Dispose()
     {
-        _factory?.Dispose();
+        foreach (var factory in _factories.Values)
+        {
+            factory.Dispose();
+        }
+
         _loadLock.Dispose();
     }
 
-    private async Task<WhisperFactory> GetFactoryAsync(CancellationToken cancellationToken)
+    private async Task<WhisperFactory> GetFactoryAsync(string model, CancellationToken cancellationToken)
     {
-        if (_factory is not null)
+        if (_factories.TryGetValue(model, out var loaded))
         {
-            return _factory;
+            return loaded;
         }
 
         await _loadLock.WaitAsync(cancellationToken);
         try
         {
-            if (_factory is null)
+            if (!_factories.TryGetValue(model, out loaded))
             {
-                var path = modelManager.GetReadyPath()
+                var path = modelManager.GetReadyPath(model)
                     ?? throw new TranscriptionUnavailableException(ModelMissingMessage);
-                _factory = WhisperFactory.FromPath(path);
+                loaded = WhisperFactory.FromPath(path);
+                _factories[model] = loaded;
             }
 
-            return _factory;
+            return loaded;
         }
         finally
         {

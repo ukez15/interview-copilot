@@ -53,6 +53,7 @@ public static class DependencyInjection
         services.AddSingleton<IAudioStreamClock>(provider => provider.GetRequiredService<TranscriptionSink>());
         services.AddSingleton<DeepgramStreamingSink>();
         services.AddSingleton<IAudioFrameSink>(provider => provider.GetRequiredService<DeepgramStreamingSink>());
+        services.AddSingleton<ISpeechModelSelector, SpeechModelSelector>(); // #85: each session's speech model
         services.AddHostedService<TranscriptionWorker>();
         services.AddScoped<AudioIngestService>();
 

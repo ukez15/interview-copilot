@@ -35,13 +35,50 @@ public sealed class WhisperModelManagerTests : IDisposable
     }
 
     [Fact]
+    public void Should_OfferTheConfiguredModel_AndTheMoreAccurateOne_AndNothingElse()
+    {
+        _manager.GetModels().Select(m => m.Model).Should().Equal(ModelFile, WhisperModelCatalog.AccurateModel);
+        _manager.GetStatus(WhisperModelCatalog.AccurateModel)!.ApproximateBytes.Should().BePositive();
+
+        _manager.GetStatus("ggml-base.en.bin").Should().BeNull();
+        _manager.StartDownload("ggml-base.en.bin").Should().BeNull();
+        _manager.GetReadyPath("ggml-base.en.bin").Should().BeNull();
+        _source.Calls.Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Should_DownloadTheMoreAccurateModel_Quantized_NextToTheDefault()
+    {
+        _manager.StartDownload(WhisperModelCatalog.AccurateModel).Should().Be(WhisperDownloadStart.Started);
+        await _manager.CurrentDownload.WaitAsync(Ct);
+
+        _source.Requested.Should().Be((GgmlType.LargeV3Turbo, QuantizationType.Q5_0));
+        _manager.GetReadyPath(WhisperModelCatalog.AccurateModel).Should().Be(Path.Combine(_root, "models", WhisperModelCatalog.AccurateModel));
+        _manager.GetStatus(ModelFile)!.State.Should().Be(WhisperModelState.Missing, "each model has its own file");
+    }
+
+    [Fact]
+    public async Task Should_DownloadOneModelAtATime()
+    {
+        _source.Gate = new TaskCompletionSource();
+        _manager.StartDownload(ModelFile).Should().Be(WhisperDownloadStart.Started);
+
+        _manager.StartDownload(WhisperModelCatalog.AccurateModel).Should().Be(WhisperDownloadStart.AlreadyDownloading);
+        _manager.GetStatus(WhisperModelCatalog.AccurateModel)!.State.Should().Be(WhisperModelState.Missing);
+
+        _source.Gate.SetResult();
+        await _manager.CurrentDownload.WaitAsync(Ct);
+        _source.Calls.Should().Be(1);
+    }
+
+    [Fact]
     public void Should_BeMissing_When_NoFileAndNoDownload()
     {
-        var status = _manager.GetStatus();
+        var status = _manager.GetStatus(ModelFile)!;
 
         status.State.Should().Be(WhisperModelState.Missing);
         status.Model.Should().Be(ModelFile);
-        _manager.GetReadyPath().Should().BeNull();
+        _manager.GetReadyPath(ModelFile).Should().BeNull();
     }
 
     [Fact]
@@ -50,9 +87,9 @@ public sealed class WhisperModelManagerTests : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(ModelPath)!);
         File.WriteAllText(ModelPath, "model");
 
-        _manager.GetStatus().State.Should().Be(WhisperModelState.Ready);
-        _manager.StartDownload().Should().Be(WhisperDownloadStart.AlreadyReady);
-        _manager.GetReadyPath().Should().Be(ModelPath);
+        _manager.GetStatus(ModelFile)!.State.Should().Be(WhisperModelState.Ready);
+        _manager.StartDownload(ModelFile).Should().Be(WhisperDownloadStart.AlreadyReady);
+        _manager.GetReadyPath(ModelFile).Should().Be(ModelPath);
         _source.Calls.Should().Be(0);
     }
 
@@ -62,13 +99,13 @@ public sealed class WhisperModelManagerTests : IDisposable
         _source.Gate = new TaskCompletionSource();
         _source.Payload = new byte[1000];
 
-        _manager.StartDownload().Should().Be(WhisperDownloadStart.Started);
-        _manager.GetStatus().State.Should().Be(WhisperModelState.Downloading);
+        _manager.StartDownload(ModelFile).Should().Be(WhisperDownloadStart.Started);
+        _manager.GetStatus(ModelFile)!.State.Should().Be(WhisperModelState.Downloading);
 
         _source.Gate.SetResult();
         await _manager.CurrentDownload.WaitAsync(Ct);
 
-        var status = _manager.GetStatus();
+        var status = _manager.GetStatus(ModelFile)!;
         status.State.Should().Be(WhisperModelState.Ready);
         (await File.ReadAllBytesAsync(ModelPath, Ct)).Should().HaveCount(1000);
         File.Exists(ModelPath + ".download").Should().BeFalse();
@@ -81,18 +118,18 @@ public sealed class WhisperModelManagerTests : IDisposable
         _source.PauseAfterBytes = 100_000;
         _source.Seekable = true;
 
-        _manager.StartDownload();
+        _manager.StartDownload(ModelFile);
         await _source.Paused.Task.WaitAsync(Ct);
-        await WaitUntilAsync(() => _manager.GetStatus().BytesDownloaded >= 100_000);
+        await WaitUntilAsync(() => _manager.GetStatus(ModelFile)!.BytesDownloaded >= 100_000);
 
-        var status = _manager.GetStatus();
+        var status = _manager.GetStatus(ModelFile)!;
         status.State.Should().Be(WhisperModelState.Downloading);
         status.BytesDownloaded.Should().BeGreaterThanOrEqualTo(100_000);
         status.TotalBytes.Should().Be(300_000);
 
         _source.Resume.SetResult();
         await _manager.CurrentDownload.WaitAsync(Ct);
-        _manager.GetStatus().State.Should().Be(WhisperModelState.Ready);
+        _manager.GetStatus(ModelFile)!.State.Should().Be(WhisperModelState.Ready);
     }
 
     [Fact]
@@ -100,8 +137,8 @@ public sealed class WhisperModelManagerTests : IDisposable
     {
         _source.Gate = new TaskCompletionSource();
 
-        _manager.StartDownload().Should().Be(WhisperDownloadStart.Started);
-        _manager.StartDownload().Should().Be(WhisperDownloadStart.AlreadyDownloading);
+        _manager.StartDownload(ModelFile).Should().Be(WhisperDownloadStart.Started);
+        _manager.StartDownload(ModelFile).Should().Be(WhisperDownloadStart.AlreadyDownloading);
 
         _source.Gate.SetResult();
         await _manager.CurrentDownload.WaitAsync(Ct);
@@ -113,10 +150,10 @@ public sealed class WhisperModelManagerTests : IDisposable
     {
         _source.Failure = new HttpRequestException("network down");
 
-        _manager.StartDownload();
+        _manager.StartDownload(ModelFile);
         await _manager.CurrentDownload.WaitAsync(Ct);
 
-        var status = _manager.GetStatus();
+        var status = _manager.GetStatus(ModelFile)!;
         status.State.Should().Be(WhisperModelState.Failed);
         status.Message.Should().Contain("network down");
         File.Exists(ModelPath).Should().BeFalse();
@@ -129,10 +166,10 @@ public sealed class WhisperModelManagerTests : IDisposable
         _source.Payload = new byte[50_000];
         _source.FailAfterBytes = 20_000;
 
-        _manager.StartDownload();
+        _manager.StartDownload(ModelFile);
         await _manager.CurrentDownload.WaitAsync(Ct);
 
-        _manager.GetStatus().State.Should().Be(WhisperModelState.Failed);
+        _manager.GetStatus(ModelFile)!.State.Should().Be(WhisperModelState.Failed);
         File.Exists(ModelPath).Should().BeFalse();
         File.Exists(ModelPath + ".download").Should().BeFalse();
     }
@@ -141,14 +178,14 @@ public sealed class WhisperModelManagerTests : IDisposable
     public async Task Should_AllowRetry_After_Failure()
     {
         _source.Failure = new HttpRequestException("boom");
-        _manager.StartDownload();
+        _manager.StartDownload(ModelFile);
         await _manager.CurrentDownload.WaitAsync(Ct);
 
         _source.Failure = null;
-        _manager.StartDownload().Should().Be(WhisperDownloadStart.Started);
+        _manager.StartDownload(ModelFile).Should().Be(WhisperDownloadStart.Started);
         await _manager.CurrentDownload.WaitAsync(Ct);
 
-        _manager.GetStatus().State.Should().Be(WhisperModelState.Ready);
+        _manager.GetStatus(ModelFile)!.State.Should().Be(WhisperModelState.Ready);
     }
 
     [Fact]
@@ -156,9 +193,9 @@ public sealed class WhisperModelManagerTests : IDisposable
     {
         using var manager = Create("custom-model.bin");
 
-        manager.StartDownload();
+        manager.StartDownload("custom-model.bin");
 
-        var status = manager.GetStatus();
+        var status = manager.GetStatus("custom-model.bin")!;
         status.State.Should().Be(WhisperModelState.Failed);
         status.Message.Should().Contain("custom-model.bin");
         _source.Calls.Should().Be(0);
@@ -215,9 +252,12 @@ public sealed class WhisperModelManagerTests : IDisposable
 
         public TaskCompletionSource Resume { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        public async Task<Stream> OpenAsync(GgmlType type, CancellationToken cancellationToken)
+        public (GgmlType Type, QuantizationType Quantization)? Requested { get; private set; }
+
+        public async Task<Stream> OpenAsync(GgmlType type, QuantizationType quantization, CancellationToken cancellationToken)
         {
             Interlocked.Increment(ref _calls);
+            Requested = (type, quantization);
             if (Gate is not null)
             {
                 await Gate.Task.WaitAsync(cancellationToken);

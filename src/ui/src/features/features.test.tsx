@@ -395,8 +395,8 @@ describe('Sign-in persistence', () => {
       if (url.endsWith('/api/providers/ollama/models')) return json([]);
       if (url.endsWith('/api/pairing/browsers')) return json([]);
       if (url.endsWith('/api/preferences')) return json({ llmModel: null, defaultLlmModel: 'llama3.2:3b' });
-      if (url.endsWith('/api/providers/whisper/model')) {
-        return json({ state: 'ready', model: 'ggml-small.en.bin', bytesDownloaded: 0, totalBytes: null, message: null });
+      if (url.endsWith('/api/providers/whisper/models')) {
+        return json([{ state: 'ready', model: 'ggml-small.en.bin', bytesDownloaded: 0, totalBytes: null, message: null, approximateBytes: null }]);
       }
       return json({ speechToText: [], llm: [] });
     });

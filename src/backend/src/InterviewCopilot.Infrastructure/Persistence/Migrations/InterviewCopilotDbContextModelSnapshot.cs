@@ -268,6 +268,10 @@ namespace InterviewCopilot.Infrastructure.Persistence.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("SpeechModel")
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("SpeechToTextProvider")
                         .HasMaxLength(50)
                         .HasColumnType("TEXT");
